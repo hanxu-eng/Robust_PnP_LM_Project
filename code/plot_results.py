@@ -8,9 +8,18 @@ from pathlib import Path
 import numpy as np
 
 try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+    from matplotlib.patches import Rectangle
     import matplotlib.pyplot as plt
 except ModuleNotFoundError:  # Keep validation possible in restricted environments.
     plt = None
+    ScalarMappable = None
+    Normalize = None
+    Rectangle = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -309,7 +318,7 @@ def save_line_plot(
     ax.set_title(title, loc="left", fontweight="bold")
     ax.legend(frameon=False)
     fig.tight_layout()
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -348,7 +357,7 @@ def plot_metric(
     ax.set_title(title, loc="left", fontweight="bold")
     ax.legend(frameon=False)
     fig.tight_layout()
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -429,7 +438,7 @@ def plot_performance_dashboard(rows: list[dict]) -> Path:
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 1.0))
     fig.suptitle("Robust PnP-LM stress-test summary", x=0.02, y=1.02, ha="left", fontweight="bold")
     fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.95])
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -479,7 +488,7 @@ def plot_huber_delta_sweep(rows: list[dict]) -> Path:
 
     fig.suptitle("Huber threshold ablation under 25% outliers", x=0.02, ha="left", fontweight="bold")
     fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.92])
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -544,7 +553,7 @@ def plot_outlier_boxplot(detail_rows: list[dict]) -> Path:
     ]
     ax.legend(handles=handles, frameon=False)
     fig.tight_layout()
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -601,22 +610,39 @@ def plot_robustness_gain_heatmap(rows: list[dict]) -> Path:
 
     setup_matplotlib_style()
     fig, ax = plt.subplots(figsize=(8.8, 3.9))
-    masked = np.ma.masked_invalid(data)
-    image = ax.imshow(masked, cmap="YlOrRd", aspect="auto", vmin=1.0)
+    max_value = float(np.nanmax(data)) if np.any(np.isfinite(data)) else 1.0
+    norm = Normalize(vmin=1.0, vmax=max(1.0, max_value))
+    cmap = plt.get_cmap("YlOrRd")
+    for i in range(data.shape[0]):
+        for j in range(data.shape[1]):
+            if np.isfinite(data[i, j]):
+                rect = Rectangle(
+                    (j - 0.5, i - 0.5),
+                    1.0,
+                    1.0,
+                    facecolor=cmap(norm(data[i, j])),
+                    edgecolor="white",
+                    linewidth=1.2,
+                )
+                ax.add_patch(rect)
     ax.set_yticks(range(len(experiments)))
     ax.set_yticklabels([EXPERIMENT_LABELS[e] for e in experiments])
     ax.set_xticks(range(max_cols))
     ax.set_xticklabels([f"level {i + 1}" for i in range(max_cols)])
+    ax.set_xlim(-0.5, max_cols - 0.5)
+    ax.set_ylim(len(experiments) - 0.5, -0.5)
     ax.set_title("Robustness gain: Ordinary clean RMSE / Huber clean RMSE", loc="left", fontweight="bold")
     ax.grid(False)
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
             if np.isfinite(data[i, j]):
                 ax.text(j, i, labels[i][j], ha="center", va="center", fontsize=8, color="#1A1A1A")
-    cbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.02)
+    scalar_map = ScalarMappable(norm=norm, cmap=cmap)
+    scalar_map.set_array([])
+    cbar = fig.colorbar(scalar_map, ax=ax, fraction=0.035, pad=0.02)
     cbar.set_label("Error ratio (higher means Huber improves more)")
     fig.tight_layout()
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
     return out_path
 

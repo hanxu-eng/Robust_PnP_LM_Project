@@ -83,7 +83,7 @@ python code/plot_results.py
 - `figures/robustness_gain_heatmap.pdf`：普通 LM 与 Huber-LM 的误差比热力图。
 - `figures/performance_dashboard.pdf`：四个主要设问的组合式总览图。
 
-所有图均保存为 PDF 矢量图。
+所有图均保存为 PDF 矢量图。Matplotlib 绘图显式使用 PDF 输出；热力图使用矢量矩形 patch 绘制，避免在 PDF 中嵌入位图热力图。
 
 ## 实验设问
 
