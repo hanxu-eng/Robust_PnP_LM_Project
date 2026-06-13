@@ -12,12 +12,12 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 1269 >>
+<< /Length 1266 >>
 stream
 1 1 1 rg 0 0 612 396 re f
 BT /F1 14 Tf 180.00 365.00 Td (Rotation error under noise) Tj ET
 BT /F1 10 Tf 260.00 20.00 Td (noise_sigma) Tj ET
-BT /F1 10 Tf 18.00 342.00 Td (rotation error \(degree\)) Tj ET
+BT /F1 10 Tf 18.00 342.00 Td (Rotation error \(deg\)) Tj ET
 0.85 0.85 0.85 RG 0.5 w
 72.00 70.00 m 576.00 70.00 l S
 BT /F1 8 Tf 25.00 67.00 Td (-0.242) Tj ET
@@ -64,5 +64,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1632
+1629
 %%EOF

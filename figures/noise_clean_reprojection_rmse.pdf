@@ -12,12 +12,12 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 1266 >>
+<< /Length 1263 >>
 stream
 1 1 1 rg 0 0 612 396 re f
 BT /F1 14 Tf 180.00 365.00 Td (Noise sensitivity) Tj ET
 BT /F1 10 Tf 260.00 20.00 Td (noise_sigma) Tj ET
-BT /F1 10 Tf 18.00 342.00 Td (clean reprojection RMSE \(pixel\)) Tj ET
+BT /F1 10 Tf 18.00 342.00 Td (Clean reprojection RMSE \(px\)) Tj ET
 0.85 0.85 0.85 RG 0.5 w
 72.00 70.00 m 576.00 70.00 l S
 BT /F1 8 Tf 25.00 67.00 Td (-1.44) Tj ET
@@ -64,5 +64,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1629
+1626
 %%EOF

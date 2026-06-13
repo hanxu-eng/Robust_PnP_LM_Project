@@ -6,7 +6,7 @@
 
 **面向三维场景重建的鲁棒 PnP 位姿优化模型与 Levenberg-Marquardt 算法实现**
 
-项目实现了一个不依赖 OpenCV `solvePnP`、不调用 `scipy.optimize.least_squares` 的 PnP 位姿优化程序。核心算法为手写 Levenberg-Marquardt，实验对比普通 LM-PnP 与 Huber 鲁棒加权 LM-PnP 在不同噪声和外点比例下的表现。
+项目实现了一个不依赖 OpenCV `solvePnP`、不调用 `scipy.optimize.least_squares` 的 PnP 位姿优化程序。核心算法为手写 Levenberg-Marquardt，实验对比普通 LM-PnP 与 Huber 鲁棒加权 LM-PnP 在不同噪声、外点比例、初始化误差、匹配点数量和 Huber 阈值条件下的表现。
 
 由于 PnP 是非凸问题，LM 属于局部优化方法，本项目在合成实验中使用真值附近的扰动初始化，用于模拟已有粗位姿或 EPnP 初始化后的局部优化阶段。
 
@@ -62,7 +62,7 @@ python code/experiment.py --mode full
 python code/plot_results.py
 ```
 
-`full` 模式使用更多 trial 和更多参数设置，适合正式报告引用。
+`full` 模式使用更多 trial 和更多参数设置，适合正式报告引用。建议服务器上优先运行 full 模式，然后用生成的 CSV 和 PDF 更新报告。
 
 ## 输出文件说明
 
@@ -76,8 +76,24 @@ python code/plot_results.py
 - `figures/outlier_clean_reprojection_rmse.pdf`：外点实验下的 clean 重投影 RMSE。
 - `figures/outlier_rotation_error.pdf`：外点实验下的旋转误差。
 - `figures/translation_error.pdf`：外点实验下的平移误差。
+- `figures/initialization_sensitivity.pdf`：不同初始旋转扰动下的收敛表现。
+- `figures/point_count_sensitivity.pdf`：不同匹配点数量下的误差变化。
+- `figures/huber_delta_sweep.pdf`：Huber 阈值消融实验。
+- `figures/outlier_clean_rmse_boxplot.pdf`：外点实验逐 trial 误差分布箱线图。
+- `figures/robustness_gain_heatmap.pdf`：普通 LM 与 Huber-LM 的误差比热力图。
+- `figures/performance_dashboard.pdf`：四个主要设问的组合式总览图。
 
 所有图均保存为 PDF 矢量图。
+
+## 实验设问
+
+本项目的实验部分不只比较单一场景，而是围绕以下问题展开：
+
+- **噪声敏感性**：图像观测高斯噪声增大时，两种方法的位姿误差如何变化。
+- **外点鲁棒性**：错误匹配比例升高时，Huber 加权是否能稳定降低 clean 重投影误差。
+- **初始化敏感性**：LM 是局部优化方法，初始位姿偏差增大后收敛质量是否下降。
+- **匹配点数量影响**：在存在外点时，更多 3D-2D 对应点是否能提升估计稳定性。
+- **Huber 阈值消融**：Huber `delta` 过小或过大时，鲁棒权重对最终精度有什么影响。
 
 ## 算法说明
 
@@ -104,6 +120,8 @@ w_i = delta / ||r_i||,    ||r_i|| > delta
 
 再将权重扩展到二维残差和雅可比上，从而降低大残差外点对优化的影响。
 
+`experiment.py` 中记录了每次 trial 的初始化误差、点数量、噪声强度、外点比例、Huber 阈值、最终 cost 和成功标记，便于在报告中做更细的统计分析。
+
 ## 评价指标说明
 
 实验数据中的 `observed_uv` 包含噪声和外点。如果直接用 `observed_uv` 评价，鲁棒方法可能因为主动降低外点权重而不一定在 observed error 上占优。因此本项目以 `clean_uv` 计算的 clean reprojection RMSE 作为主评价指标，用于衡量估计位姿相对真实投影的准确性；observed reprojection RMSE 作为辅助指标保留。
@@ -117,3 +135,4 @@ w_i = delta / ||r_i||,    ||r_i|| > delta
 - 所有随机实验均设置 seed，结果可复现。
 - 所有图由真实运行结果生成，不编造实验数值。
 - quick 模式用于快速检查代码是否可运行；正式写报告建议使用 full 模式重新生成结果。
+- 绘图优先使用 Matplotlib；若本地环境缺少 Matplotlib，代码会生成简单 PDF 兜底，服务器安装依赖后会自动生成更完整的高级图。

@@ -1,4 +1,4 @@
-"""Create PDF figures from summary experiment results."""
+"""Create report-ready PDF figures from experiment CSV results."""
 
 from __future__ import annotations
 
@@ -16,27 +16,74 @@ except ModuleNotFoundError:  # Keep validation possible in restricted environmen
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = ROOT / "results"
 FIGURE_DIR = ROOT / "figures"
-METHODS = ["Ordinary-LM", "Huber-LM"]
+METHOD_ORDER = ["Ordinary-LM", "Huber-LM"]
+METHOD_COLORS = {
+    "Ordinary-LM": "#546A7B",
+    "Huber-LM": "#D45113",
+}
+METHOD_MARKERS = {
+    "Ordinary-LM": "o",
+    "Huber-LM": "s",
+}
+EXPERIMENT_LABELS = {
+    "noise": "Noise sigma",
+    "outlier": "Outlier ratio",
+    "initialization": "Initial rotation error (deg)",
+    "point_count": "Number of 3D-2D matches",
+    "huber_delta": "Huber delta",
+}
 
 
-def read_summary(path: Path) -> list[dict]:
-    """Read summary CSV and convert numeric fields."""
+def read_csv_numeric(path: Path) -> list[dict]:
+    """Read a CSV file and convert numeric fields where possible."""
     rows: list[dict] = []
     with path.open("r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             converted = dict(row)
             for key, value in row.items():
-                if key not in {"experiment_type", "method"}:
+                if key in {"experiment_type", "method"}:
+                    continue
+                if value == "":
+                    converted[key] = float("nan")
+                    continue
+                try:
                     converted[key] = float(value)
+                except ValueError:
+                    converted[key] = value
             rows.append(converted)
     return rows
 
 
-def rows_for(rows: list[dict], experiment_type: str, metric_mean: str) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Collect x and y arrays for each method."""
-    output: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for method in METHODS:
+def read_summary(path: Path) -> list[dict]:
+    """Read summary CSV results."""
+    return read_csv_numeric(path)
+
+
+def read_detail(path: Path) -> list[dict]:
+    """Read per-trial CSV results."""
+    return read_csv_numeric(path)
+
+
+def methods_in(rows: list[dict], experiment_type: str) -> list[str]:
+    """Return methods present in a stable order."""
+    present = {r["method"] for r in rows if r["experiment_type"] == experiment_type}
+    ordered = [m for m in METHOD_ORDER if m in present]
+    ordered.extend(sorted(present.difference(ordered)))
+    return ordered
+
+
+def rows_for(
+    rows: list[dict],
+    experiment_type: str,
+    metric_mean: str,
+    metric_std: str | None = None,
+    method_list: list[str] | None = None,
+) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Collect x, mean and std arrays for each method."""
+    output: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    methods = method_list if method_list is not None else methods_in(rows, experiment_type)
+    for method in methods:
         filtered = [
             r
             for r in rows
@@ -45,7 +92,11 @@ def rows_for(rows: list[dict], experiment_type: str, metric_mean: str) -> dict[s
         filtered.sort(key=lambda r: r["setting_value"])
         x = np.array([r["setting_value"] for r in filtered], dtype=float)
         y = np.array([r[metric_mean] for r in filtered], dtype=float)
-        output[method] = (x, y)
+        if metric_std is None:
+            y_std = np.zeros_like(y)
+        else:
+            y_std = np.array([r[metric_std] for r in filtered], dtype=float)
+        output[method] = (x, y, y_std)
     return output
 
 
@@ -88,6 +139,26 @@ def _write_minimal_pdf(path: Path, commands: list[str], width: int = 612, height
         ).encode("ascii")
     )
     path.write_bytes(bytes(pdf))
+
+
+def _fallback_report_pdf(path: Path, title: str, lines: list[str]) -> Path:
+    """Save a text-only PDF when Matplotlib is unavailable."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def text(x: float, y: float, value: str, size: int = 10) -> str:
+        return f"BT /F1 {size} Tf {x:.2f} {y:.2f} Td ({_pdf_escape(value)}) Tj ET"
+
+    commands = [
+        "1 1 1 rg 0 0 612 396 re f",
+        text(56, 350, title, 15),
+        text(56, 326, "Matplotlib is not installed; this is a validation fallback.", 9),
+    ]
+    y = 300
+    for line in lines[:14]:
+        commands.append(text(56, y, line, 9))
+        y -= 18
+    _write_minimal_pdf(path, commands)
+    return path
 
 
 def _fallback_line_pdf(
@@ -167,8 +238,7 @@ def _fallback_line_pdf(
     commands.append(f"{left:.2f} {bottom:.2f} m {left + plot_w:.2f} {bottom:.2f} l S")
 
     for index, (label, x_arr, y_arr) in enumerate(clean_series):
-        color = colors[index % len(colors)]
-        r, g, b = color
+        r, g, b = colors[index % len(colors)]
         commands.append(f"{r:.3f} {g:.3f} {b:.3f} RG 1.6 w")
         points = [(sx(float(x)), sy(float(y))) for x, y in zip(x_arr, y_arr)]
         if points:
@@ -187,6 +257,31 @@ def _fallback_line_pdf(
     _write_minimal_pdf(out_path, commands, width=width, height=height)
 
 
+def setup_matplotlib_style() -> None:
+    """Apply a compact report-friendly Matplotlib style."""
+    if plt is None:
+        return
+    plt.rcParams.update(
+        {
+            "figure.dpi": 130,
+            "savefig.dpi": 300,
+            "font.size": 10,
+            "axes.titlesize": 11,
+            "axes.labelsize": 10,
+            "legend.fontsize": 9,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.grid": True,
+            "grid.alpha": 0.24,
+            "grid.linewidth": 0.7,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
+
+
 def save_line_plot(
     series: list[tuple[str, np.ndarray, np.ndarray]],
     xlabel: str,
@@ -201,19 +296,21 @@ def save_line_plot(
         _fallback_line_pdf(series, xlabel, ylabel, title, out_path, yscale_log=yscale_log)
         return out_path
 
-    plt.figure(figsize=(6.2, 4.2))
+    setup_matplotlib_style()
+    fig, ax = plt.subplots(figsize=(6.6, 4.2))
     for label, x, y in series:
-        plt.plot(x, y, marker="o", linewidth=2.0, label=label)
+        color = METHOD_COLORS.get(label, "#2A9D8F")
+        marker = METHOD_MARKERS.get(label, "o")
+        ax.plot(x, y, marker=marker, linewidth=2.2, markersize=5.5, label=label, color=color)
     if yscale_log:
-        plt.yscale("log")
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.title(title)
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path)
-    plt.close()
+        ax.set_yscale("log")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, loc="left", fontweight="bold")
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
     return out_path
 
 
@@ -221,34 +318,332 @@ def plot_metric(
     rows: list[dict],
     experiment_type: str,
     metric_mean: str,
+    metric_std: str,
     xlabel: str,
     ylabel: str,
     title: str,
     filename: str,
+    yscale_log: bool = False,
 ) -> Path:
-    """Plot one metric and save it as a PDF."""
+    """Plot one metric with mean lines and standard-deviation bands."""
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
     out_path = FIGURE_DIR / filename
-    series = rows_for(rows, experiment_type, metric_mean)
-    plot_series = [(method, series[method][0], series[method][1]) for method in METHODS]
-    return save_line_plot(plot_series, xlabel, ylabel, title, out_path)
+    series = rows_for(rows, experiment_type, metric_mean, metric_std)
+
+    if plt is None:
+        plot_series = [(method, item[0], item[1]) for method, item in series.items()]
+        return save_line_plot(plot_series, xlabel, ylabel, title, out_path, yscale_log=yscale_log)
+
+    setup_matplotlib_style()
+    fig, ax = plt.subplots(figsize=(6.8, 4.4))
+    for method, (x, y, y_std) in series.items():
+        color = METHOD_COLORS.get(method, "#2A9D8F")
+        marker = METHOD_MARKERS.get(method, "o")
+        ax.plot(x, y, marker=marker, linewidth=2.2, markersize=5.5, label=method, color=color)
+        ax.fill_between(x, y - y_std, y + y_std, color=color, alpha=0.14, linewidth=0.0)
+    if yscale_log:
+        ax.set_yscale("log")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, loc="left", fontweight="bold")
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def _plot_panel(
+    ax,
+    rows: list[dict],
+    experiment_type: str,
+    metric_mean: str,
+    metric_std: str,
+    title: str,
+    ylabel: str,
+) -> None:
+    """Draw one dashboard panel."""
+    series = rows_for(rows, experiment_type, metric_mean, metric_std)
+    for method, (x, y, y_std) in series.items():
+        color = METHOD_COLORS.get(method, "#2A9D8F")
+        marker = METHOD_MARKERS.get(method, "o")
+        ax.plot(x, y, marker=marker, linewidth=2.0, markersize=4.8, label=method, color=color)
+        ax.fill_between(x, y - y_std, y + y_std, color=color, alpha=0.12, linewidth=0.0)
+    ax.set_title(title, loc="left", fontweight="bold")
+    ax.set_xlabel(EXPERIMENT_LABELS.get(experiment_type, experiment_type))
+    ax.set_ylabel(ylabel)
+
+
+def plot_performance_dashboard(rows: list[dict]) -> Path:
+    """Save a four-panel dashboard that summarizes the main research questions."""
+    out_path = FIGURE_DIR / "performance_dashboard.pdf"
+    if plt is None:
+        return _fallback_report_pdf(
+            out_path,
+            "Performance dashboard",
+            [
+                "Advanced dashboard requires Matplotlib.",
+                "Run on the server after `pip install -r requirements.txt`.",
+            ],
+        )
+
+    setup_matplotlib_style()
+    fig, axes = plt.subplots(2, 2, figsize=(10.8, 7.4))
+    _plot_panel(
+        axes[0, 0],
+        rows,
+        "noise",
+        "clean_reprojection_rmse_mean",
+        "clean_reprojection_rmse_std",
+        "A. Noise sensitivity",
+        "Clean RMSE (px)",
+    )
+    _plot_panel(
+        axes[0, 1],
+        rows,
+        "outlier",
+        "rotation_error_deg_mean",
+        "rotation_error_deg_std",
+        "B. Outlier sensitivity",
+        "Rotation error (deg)",
+    )
+    _plot_panel(
+        axes[1, 0],
+        rows,
+        "initialization",
+        "rotation_error_deg_mean",
+        "rotation_error_deg_std",
+        "C. Initialization basin",
+        "Rotation error (deg)",
+    )
+    _plot_panel(
+        axes[1, 1],
+        rows,
+        "point_count",
+        "clean_reprojection_rmse_mean",
+        "clean_reprojection_rmse_std",
+        "D. Match count under outliers",
+        "Clean RMSE (px)",
+    )
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 1.0))
+    fig.suptitle("Robust PnP-LM stress-test summary", x=0.02, y=1.02, ha="left", fontweight="bold")
+    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.95])
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def plot_huber_delta_sweep(rows: list[dict]) -> Path:
+    """Plot Huber threshold ablation."""
+    out_path = FIGURE_DIR / "huber_delta_sweep.pdf"
+    delta_rows = [
+        r for r in rows if r["experiment_type"] == "huber_delta" and r["method"] == "Huber-LM"
+    ]
+    delta_rows.sort(key=lambda r: r["setting_value"])
+    if plt is None:
+        series = [
+            (
+                "Clean RMSE",
+                np.array([r["setting_value"] for r in delta_rows], dtype=float),
+                np.array([r["clean_reprojection_rmse_mean"] for r in delta_rows], dtype=float),
+            )
+        ]
+        return save_line_plot(
+            series,
+            "Huber delta",
+            "Clean RMSE (px)",
+            "Huber threshold ablation",
+            out_path,
+        )
+
+    setup_matplotlib_style()
+    x = np.array([r["setting_value"] for r in delta_rows], dtype=float)
+    clean = np.array([r["clean_reprojection_rmse_mean"] for r in delta_rows], dtype=float)
+    clean_std = np.array([r["clean_reprojection_rmse_std"] for r in delta_rows], dtype=float)
+    rot = np.array([r["rotation_error_deg_mean"] for r in delta_rows], dtype=float)
+    rot_std = np.array([r["rotation_error_deg_std"] for r in delta_rows], dtype=float)
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.8))
+    axes[0].plot(x, clean, marker="o", color="#D45113", linewidth=2.2)
+    axes[0].fill_between(x, clean - clean_std, clean + clean_std, color="#D45113", alpha=0.15)
+    axes[0].set_title("Clean reprojection error", loc="left", fontweight="bold")
+    axes[0].set_xlabel("Huber delta (px)")
+    axes[0].set_ylabel("Clean RMSE (px)")
+
+    axes[1].plot(x, rot, marker="s", color="#2A9D8F", linewidth=2.2)
+    axes[1].fill_between(x, rot - rot_std, rot + rot_std, color="#2A9D8F", alpha=0.15)
+    axes[1].set_title("Pose error", loc="left", fontweight="bold")
+    axes[1].set_xlabel("Huber delta (px)")
+    axes[1].set_ylabel("Rotation error (deg)")
+
+    fig.suptitle("Huber threshold ablation under 25% outliers", x=0.02, ha="left", fontweight="bold")
+    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.92])
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def plot_outlier_boxplot(detail_rows: list[dict]) -> Path:
+    """Plot per-trial clean RMSE distribution under outlier stress."""
+    out_path = FIGURE_DIR / "outlier_clean_rmse_boxplot.pdf"
+    outlier_rows = [r for r in detail_rows if r["experiment_type"] == "outlier"]
+    settings = sorted({float(r["setting_value"]) for r in outlier_rows})
+    if plt is None:
+        return _fallback_report_pdf(
+            out_path,
+            "Outlier RMSE boxplot",
+            ["Advanced boxplot requires Matplotlib.", f"Settings: {settings}"],
+        )
+
+    setup_matplotlib_style()
+    fig, ax = plt.subplots(figsize=(7.8, 4.6))
+    positions = []
+    data = []
+    colors = []
+    labels = []
+    width = 0.28
+    for idx, setting in enumerate(settings, start=1):
+        for offset, method in [(-width / 1.4, "Ordinary-LM"), (width / 1.4, "Huber-LM")]:
+            values = [
+                float(r["clean_reprojection_rmse"])
+                for r in outlier_rows
+                if float(r["setting_value"]) == setting and r["method"] == method
+            ]
+            if not values:
+                continue
+            positions.append(idx + offset)
+            data.append(values)
+            colors.append(METHOD_COLORS.get(method, "#2A9D8F"))
+            labels.append(method)
+
+    boxes = ax.boxplot(
+        data,
+        positions=positions,
+        widths=width,
+        patch_artist=True,
+        showfliers=True,
+        medianprops={"color": "#111111", "linewidth": 1.2},
+    )
+    for patch, color in zip(boxes["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.42)
+        patch.set_edgecolor(color)
+    for element in ["whiskers", "caps"]:
+        for artist in boxes[element]:
+            artist.set_color("#4A4A4A")
+    ax.set_xticks(range(1, len(settings) + 1))
+    ax.set_xticklabels([f"{s:g}" for s in settings])
+    ax.set_xlabel("Outlier ratio")
+    ax.set_ylabel("Clean RMSE (px)")
+    ax.set_title("Per-trial distribution under outliers", loc="left", fontweight="bold")
+
+    handles = [
+        plt.Line2D([0], [0], color=METHOD_COLORS[m], marker="s", linestyle="", markersize=9, label=m)
+        for m in METHOD_ORDER
+    ]
+    ax.legend(handles=handles, frameon=False)
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def plot_robustness_gain_heatmap(rows: list[dict]) -> Path:
+    """Plot Ordinary/Huber clean-RMSE ratio across stress tests."""
+    out_path = FIGURE_DIR / "robustness_gain_heatmap.pdf"
+    experiments = ["noise", "outlier", "initialization", "point_count"]
+    row_cells: list[list[tuple[float, float] | None]] = []
+    max_cols = 0
+    for experiment_type in experiments:
+        settings = sorted({
+            float(r["setting_value"])
+            for r in rows
+            if r["experiment_type"] == experiment_type
+        })
+        cells: list[tuple[float, float] | None] = []
+        for setting in settings:
+            ordinary = [
+                r
+                for r in rows
+                if r["experiment_type"] == experiment_type
+                and float(r["setting_value"]) == setting
+                and r["method"] == "Ordinary-LM"
+            ]
+            huber = [
+                r
+                for r in rows
+                if r["experiment_type"] == experiment_type
+                and float(r["setting_value"]) == setting
+                and r["method"] == "Huber-LM"
+            ]
+            if ordinary and huber:
+                ratio = ordinary[0]["clean_reprojection_rmse_mean"] / max(
+                    huber[0]["clean_reprojection_rmse_mean"], 1e-12
+                )
+                cells.append((setting, ratio))
+        max_cols = max(max_cols, len(cells))
+        row_cells.append(cells)
+
+    if plt is None:
+        lines = []
+        for experiment_type, cells in zip(experiments, row_cells):
+            text = ", ".join(f"{setting:g}: {ratio:.2f}x" for setting, ratio in cells)
+            lines.append(f"{experiment_type}: {text}")
+        return _fallback_report_pdf(out_path, "Robustness gain heatmap", lines)
+
+    data = np.full((len(experiments), max_cols), np.nan, dtype=float)
+    labels = [["" for _ in range(max_cols)] for _ in experiments]
+    for row_idx, cells in enumerate(row_cells):
+        for col_idx, (setting, ratio) in enumerate(cells):
+            data[row_idx, col_idx] = ratio
+            labels[row_idx][col_idx] = f"{setting:g}\n{ratio:.1f}x"
+
+    setup_matplotlib_style()
+    fig, ax = plt.subplots(figsize=(8.8, 3.9))
+    masked = np.ma.masked_invalid(data)
+    image = ax.imshow(masked, cmap="YlOrRd", aspect="auto", vmin=1.0)
+    ax.set_yticks(range(len(experiments)))
+    ax.set_yticklabels([EXPERIMENT_LABELS[e] for e in experiments])
+    ax.set_xticks(range(max_cols))
+    ax.set_xticklabels([f"level {i + 1}" for i in range(max_cols)])
+    ax.set_title("Robustness gain: Ordinary clean RMSE / Huber clean RMSE", loc="left", fontweight="bold")
+    ax.grid(False)
+    for i in range(data.shape[0]):
+        for j in range(data.shape[1]):
+            if np.isfinite(data[i, j]):
+                ax.text(j, i, labels[i][j], ha="center", va="center", fontsize=8, color="#1A1A1A")
+    cbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.02)
+    cbar.set_label("Error ratio (higher means Huber improves more)")
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
 
 
 def main() -> None:
     """Read CSV summaries and generate report-ready PDF figures."""
     summary_path = RESULTS_DIR / "summary_results.csv"
+    detail_path = RESULTS_DIR / "experiment_results.csv"
     if not summary_path.exists():
         raise FileNotFoundError(
             f"Cannot find {summary_path}. Run `python code/experiment.py --mode quick` first."
         )
+    if not detail_path.exists():
+        raise FileNotFoundError(
+            f"Cannot find {detail_path}. Run `python code/experiment.py --mode quick` first."
+        )
+
     rows = read_summary(summary_path)
+    detail_rows = read_detail(detail_path)
     figure_paths = [
         plot_metric(
             rows,
             "noise",
             "clean_reprojection_rmse_mean",
+            "clean_reprojection_rmse_std",
             "noise_sigma",
-            "clean reprojection RMSE (pixel)",
+            "Clean reprojection RMSE (px)",
             "Noise sensitivity",
             "noise_clean_reprojection_rmse.pdf",
         ),
@@ -256,8 +651,9 @@ def main() -> None:
             rows,
             "noise",
             "rotation_error_deg_mean",
+            "rotation_error_deg_std",
             "noise_sigma",
-            "rotation error (degree)",
+            "Rotation error (deg)",
             "Rotation error under noise",
             "noise_rotation_error.pdf",
         ),
@@ -265,8 +661,9 @@ def main() -> None:
             rows,
             "outlier",
             "clean_reprojection_rmse_mean",
+            "clean_reprojection_rmse_std",
             "outlier_ratio",
-            "clean reprojection RMSE (pixel)",
+            "Clean reprojection RMSE (px)",
             "Outlier sensitivity",
             "outlier_clean_reprojection_rmse.pdf",
         ),
@@ -274,8 +671,9 @@ def main() -> None:
             rows,
             "outlier",
             "rotation_error_deg_mean",
+            "rotation_error_deg_std",
             "outlier_ratio",
-            "rotation error (degree)",
+            "Rotation error (deg)",
             "Rotation error under outliers",
             "outlier_rotation_error.pdf",
         ),
@@ -283,11 +681,36 @@ def main() -> None:
             rows,
             "outlier",
             "translation_error_mean",
+            "translation_error_std",
             "outlier_ratio",
-            "translation error",
+            "Translation error",
             "Translation error under outliers",
             "translation_error.pdf",
         ),
+        plot_metric(
+            rows,
+            "initialization",
+            "rotation_error_deg_mean",
+            "rotation_error_deg_std",
+            "initial rotation perturbation (deg)",
+            "Rotation error (deg)",
+            "Initialization sensitivity",
+            "initialization_sensitivity.pdf",
+        ),
+        plot_metric(
+            rows,
+            "point_count",
+            "clean_reprojection_rmse_mean",
+            "clean_reprojection_rmse_std",
+            "number of correspondences",
+            "Clean reprojection RMSE (px)",
+            "Point-count sensitivity under outliers",
+            "point_count_sensitivity.pdf",
+        ),
+        plot_huber_delta_sweep(rows),
+        plot_outlier_boxplot(detail_rows),
+        plot_robustness_gain_heatmap(rows),
+        plot_performance_dashboard(rows),
     ]
     print("Generated figures:")
     for path in figure_paths:

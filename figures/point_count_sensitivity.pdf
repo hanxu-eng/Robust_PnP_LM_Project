@@ -12,43 +12,43 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 1265 >>
+<< /Length 1300 >>
 stream
 1 1 1 rg 0 0 612 396 re f
-BT /F1 14 Tf 180.00 365.00 Td (Outlier sensitivity) Tj ET
-BT /F1 10 Tf 260.00 20.00 Td (outlier_ratio) Tj ET
+BT /F1 14 Tf 180.00 365.00 Td (Point-count sensitivity under outliers) Tj ET
+BT /F1 10 Tf 260.00 20.00 Td (number of correspondences) Tj ET
 BT /F1 10 Tf 18.00 342.00 Td (Clean reprojection RMSE \(px\)) Tj ET
 0.85 0.85 0.85 RG 0.5 w
 72.00 70.00 m 576.00 70.00 l S
-BT /F1 8 Tf 25.00 67.00 Td (-1.43) Tj ET
+BT /F1 8 Tf 25.00 67.00 Td (-2.91) Tj ET
 72.00 138.50 m 576.00 138.50 l S
-BT /F1 8 Tf 25.00 135.50 Td (3.77) Tj ET
+BT /F1 8 Tf 25.00 135.50 Td (7.65) Tj ET
 72.00 207.00 m 576.00 207.00 l S
-BT /F1 8 Tf 25.00 204.00 Td (8.97) Tj ET
+BT /F1 8 Tf 25.00 204.00 Td (18.2) Tj ET
 72.00 275.50 m 576.00 275.50 l S
-BT /F1 8 Tf 25.00 272.50 Td (14.2) Tj ET
+BT /F1 8 Tf 25.00 272.50 Td (28.8) Tj ET
 72.00 344.00 m 576.00 344.00 l S
-BT /F1 8 Tf 25.00 341.00 Td (19.4) Tj ET
+BT /F1 8 Tf 25.00 341.00 Td (39.3) Tj ET
 0.85 0.85 0.85 RG 0.5 w
 72.00 70.00 m 72.00 344.00 l S
-BT /F1 8 Tf 64.00 52.00 Td (0) Tj ET
+BT /F1 8 Tf 64.00 52.00 Td (40) Tj ET
 576.00 70.00 m 576.00 344.00 l S
-BT /F1 8 Tf 568.00 52.00 Td (0.2) Tj ET
+BT /F1 8 Tf 568.00 52.00 Td (120) Tj ET
 0 0 0 RG 1 w
 72.00 70.00 m 72.00 344.00 l S
 72.00 70.00 m 576.00 70.00 l S
 0.120 0.350 0.750 RG 1.6 w
-72.00 92.29 m 576.00 325.10 l S
+72.00 325.10 m 576.00 276.83 l S
 0.120 0.350 0.750 rg
-70.00 90.29 4 4 re f
-574.00 323.10 4 4 re f
+70.00 323.10 4 4 re f
+574.00 274.83 4 4 re f
 0.120 0.350 0.750 rg 458.00 326.00 10 4 re f
 BT /F1 9 Tf 474.00 324.00 Td (Ordinary-LM) Tj ET
 0.800 0.200 0.180 RG 1.6 w
-72.00 92.29 m 576.00 98.99 l S
+72.00 100.06 m 576.00 94.96 l S
 0.800 0.200 0.180 rg
-70.00 90.29 4 4 re f
-574.00 96.99 4 4 re f
+70.00 98.06 4 4 re f
+574.00 92.96 4 4 re f
 0.800 0.200 0.180 rg 458.00 310.00 10 4 re f
 BT /F1 9 Tf 474.00 308.00 Td (Huber-LM) Tj ET
 endstream
@@ -64,5 +64,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1628
+1663
 %%EOF
