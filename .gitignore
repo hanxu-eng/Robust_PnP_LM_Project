@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 data/*
 !data/.gitkeep
+figures/*
+!figures/.gitkeep
+results/*
+!results/.gitkeep

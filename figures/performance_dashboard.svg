@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="612" height="396" viewBox="0 0 612 396">
-<rect width="100%" height="100%" fill="white"/>
-<text x="56" y="50" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Performance dashboard</text>
-<text x="56" y="76" font-family="Helvetica, Arial, sans-serif" font-size="10">Matplotlib is not installed; this is a validation fallback.</text>
-<text x="56" y="108" font-family="Helvetica, Arial, sans-serif" font-size="10">Advanced dashboard requires Matplotlib.</text>
-<text x="56" y="128" font-family="Helvetica, Arial, sans-serif" font-size="10">Run on the server after `pip install -r requirements.txt`.</text>
-</svg>
