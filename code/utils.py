@@ -31,6 +31,50 @@ def so3_exp(w: np.ndarray) -> np.ndarray:
     return np.eye(3) + a * W + b * (W @ W)
 
 
+def so3_log(R: np.ndarray) -> np.ndarray:
+    """Map a rotation matrix to a rotation vector."""
+    R = np.asarray(R, dtype=float).reshape(3, 3)
+    cos_angle = (np.trace(R) - 1.0) / 2.0
+    cos_angle = float(np.clip(cos_angle, -1.0, 1.0))
+    theta = float(np.arccos(cos_angle))
+
+    if theta < 1e-12:
+        return np.array(
+            [
+                0.5 * (R[2, 1] - R[1, 2]),
+                0.5 * (R[0, 2] - R[2, 0]),
+                0.5 * (R[1, 0] - R[0, 1]),
+            ],
+            dtype=float,
+        )
+
+    if np.pi - theta < 1e-6:
+        A = (R + np.eye(3)) / 2.0
+        axis = np.sqrt(np.maximum(np.diag(A), 0.0))
+        if R[2, 1] - R[1, 2] < 0.0:
+            axis[0] = -axis[0]
+        if R[0, 2] - R[2, 0] < 0.0:
+            axis[1] = -axis[1]
+        if R[1, 0] - R[0, 1] < 0.0:
+            axis[2] = -axis[2]
+        axis_norm = np.linalg.norm(axis)
+        if axis_norm < 1e-12:
+            axis = np.array([1.0, 0.0, 0.0], dtype=float)
+        else:
+            axis = axis / axis_norm
+        return theta * axis
+
+    scale = theta / (2.0 * np.sin(theta))
+    return scale * np.array(
+        [
+            R[2, 1] - R[1, 2],
+            R[0, 2] - R[2, 0],
+            R[1, 0] - R[0, 1],
+        ],
+        dtype=float,
+    )
+
+
 def rotation_error_deg(R_est: np.ndarray, R_gt: np.ndarray) -> float:
     """Compute geodesic rotation error in degrees."""
     R_est = np.asarray(R_est, dtype=float).reshape(3, 3)

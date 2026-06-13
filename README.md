@@ -21,9 +21,13 @@ Robust_PnP_LM_Project/
 │   ├── __init__.py
 │   ├── utils.py
 │   ├── pnp_lm.py
+│   ├── real_data.py
+│   ├── real_experiment.py
 │   ├── experiment.py
 │   ├── plot_results.py
 │   └── main.py
+├── data/
+│   └── .gitkeep
 ├── results/
 │   └── .gitkeep
 ├── figures/
@@ -64,6 +68,55 @@ python code/plot_results.py
 
 `full` 模式使用更多 trial 和更多参数设置，适合正式报告引用。建议服务器上优先运行 full 模式，然后用生成的 CSV 和 SVG 更新报告。
 
+## 真实数据实验
+
+项目支持读取 COLMAP sparse text model 的真实 2D-3D 对应关系。需要准备一个包含以下文件的目录：
+
+```text
+cameras.txt
+images.txt
+points3D.txt
+```
+
+建议优先使用 COLMAP undistorted sparse model 或 `PINHOLE` / `SIMPLE_PINHOLE` 相机模型；如果原模型包含径向畸变，当前脚本会忽略畸变参数，只使用等效 pinhole 内参做 PnP。
+
+如果你手上是 COLMAP binary model，可以先转换成 text：
+
+```bash
+colmap model_converter \
+  --input_path path/to/sparse/0 \
+  --output_path data/colmap_text_model \
+  --output_type TXT
+```
+
+然后运行真实数据实验：
+
+```bash
+python code/real_experiment.py --colmap-dir data/colmap_text_model --mode quick
+```
+
+正式运行：
+
+```bash
+python code/real_experiment.py --colmap-dir data/colmap_text_model --mode full
+```
+
+默认会自动选择有效 2D-3D 对应点最多的一张图像。也可以指定：
+
+```bash
+python code/real_experiment.py --colmap-dir data/colmap_text_model --image-id 12
+python code/real_experiment.py --colmap-dir data/colmap_text_model --image-name image001.jpg
+```
+
+真实数据实验会输出：
+
+- `results/real_experiment_results.csv`
+- `results/real_summary_results.csv`
+- `figures/real_reference_rmse.svg`
+- `figures/real_rotation_error.svg`
+
+说明：COLMAP 给出的位姿和 3D 点作为 reference pose / reference map。实验先在真实 2D-3D 对应关系上跑 PnP，再通过打乱一部分真实 2D 观测模拟错误匹配压力测试。这比纯合成点更接近真实视觉任务，但仍依赖 COLMAP 重建质量。
+
 ## 输出文件说明
 
 运行实验后会生成：
@@ -82,6 +135,8 @@ python code/plot_results.py
 - `figures/outlier_clean_rmse_boxplot.svg`：外点实验逐 trial 误差分布箱线图。
 - `figures/robustness_gain_heatmap.svg`：普通 LM 与 Huber-LM 的误差比热力图。
 - `figures/performance_dashboard.svg`：四个主要设问的组合式总览图。
+- `figures/real_reference_rmse.svg`：真实 COLMAP 对应关系上的参考重投影误差。
+- `figures/real_rotation_error.svg`：真实 COLMAP 对应关系上的旋转误差。
 
 默认图像格式为 SVG 矢量图。若需要 PDF，可运行：
 

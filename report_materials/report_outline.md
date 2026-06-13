@@ -263,6 +263,27 @@ huber_delta_list = [1.0, 2.0, 5.0, 10.0, 20.0]
 
 该实验可用于讨论：`delta` 过小可能过度压低正常噪声点权重，`delta` 过大则接近普通最小二乘，对外点抑制不足。
 
+### 真实数据实验
+
+为增强实验可信度，可以使用 COLMAP 在真实图像上得到的 sparse reconstruction。实验读取 `cameras.txt`、`images.txt` 和 `points3D.txt`，从单张图像中提取真实 2D-3D 对应关系，并将 COLMAP 位姿作为 reference pose。运行命令示例：
+
+```text
+python code/real_experiment.py --colmap-dir data/colmap_text_model --mode full
+```
+
+如果原始模型是 COLMAP binary 格式，可先执行：
+
+```text
+colmap model_converter --input_path path/to/sparse/0 --output_path data/colmap_text_model --output_type TXT
+```
+
+报告中可引用：
+
+- `figures/real_reference_rmse.svg`
+- `figures/real_rotation_error.svg`
+
+需要说明的是，真实数据实验中的 reference pose 不是独立的运动捕捉真值，而是 COLMAP 重建结果。该实验的意义在于验证算法能否在真实图像匹配产生的 2D-3D 对应关系上工作，并通过打乱部分真实 2D 观测模拟错误匹配压力测试。
+
 ### 评价指标
 
 主要指标包括：
