@@ -51,9 +51,9 @@ python code/experiment.py --mode quick
 python code/plot_results.py
 ```
 
-`main.py` 会运行一次固定随机种子的示例，并保存收敛曲线 `figures/convergence.pdf`。
+`main.py` 会运行一次固定随机种子的示例，并保存收敛曲线 `figures/convergence.svg`。
 
-`quick` 模式用于快速验收，运行少量 trial，生成 CSV 结果和 PDF 图。
+`quick` 模式用于快速验收，运行少量 trial，生成 CSV 结果和矢量图。
 
 ## 完整实验命令
 
@@ -62,7 +62,7 @@ python code/experiment.py --mode full
 python code/plot_results.py
 ```
 
-`full` 模式使用更多 trial 和更多参数设置，适合正式报告引用。建议服务器上优先运行 full 模式，然后用生成的 CSV 和 PDF 更新报告。
+`full` 模式使用更多 trial 和更多参数设置，适合正式报告引用。建议服务器上优先运行 full 模式，然后用生成的 CSV 和 SVG 更新报告。
 
 ## 输出文件说明
 
@@ -70,20 +70,32 @@ python code/plot_results.py
 
 - `results/experiment_results.csv`：每个 trial 的详细结果。
 - `results/summary_results.csv`：按实验类型、参数设置和方法聚合后的均值与标准差。
-- `figures/convergence.pdf`：单次示例的 LM 收敛曲线。
-- `figures/noise_clean_reprojection_rmse.pdf`：噪声实验下的 clean 重投影 RMSE。
-- `figures/noise_rotation_error.pdf`：噪声实验下的旋转误差。
-- `figures/outlier_clean_reprojection_rmse.pdf`：外点实验下的 clean 重投影 RMSE。
-- `figures/outlier_rotation_error.pdf`：外点实验下的旋转误差。
-- `figures/translation_error.pdf`：外点实验下的平移误差。
-- `figures/initialization_sensitivity.pdf`：不同初始旋转扰动下的收敛表现。
-- `figures/point_count_sensitivity.pdf`：不同匹配点数量下的误差变化。
-- `figures/huber_delta_sweep.pdf`：Huber 阈值消融实验。
-- `figures/outlier_clean_rmse_boxplot.pdf`：外点实验逐 trial 误差分布箱线图。
-- `figures/robustness_gain_heatmap.pdf`：普通 LM 与 Huber-LM 的误差比热力图。
-- `figures/performance_dashboard.pdf`：四个主要设问的组合式总览图。
+- `figures/convergence.svg`：单次示例的 LM 收敛曲线。
+- `figures/noise_clean_reprojection_rmse.svg`：噪声实验下的 clean 重投影 RMSE。
+- `figures/noise_rotation_error.svg`：噪声实验下的旋转误差。
+- `figures/outlier_clean_reprojection_rmse.svg`：外点实验下的 clean 重投影 RMSE。
+- `figures/outlier_rotation_error.svg`：外点实验下的旋转误差。
+- `figures/translation_error.svg`：外点实验下的平移误差。
+- `figures/initialization_sensitivity.svg`：不同初始旋转扰动下的收敛表现。
+- `figures/point_count_sensitivity.svg`：不同匹配点数量下的误差变化。
+- `figures/huber_delta_sweep.svg`：Huber 阈值消融实验。
+- `figures/outlier_clean_rmse_boxplot.svg`：外点实验逐 trial 误差分布箱线图。
+- `figures/robustness_gain_heatmap.svg`：普通 LM 与 Huber-LM 的误差比热力图。
+- `figures/performance_dashboard.svg`：四个主要设问的组合式总览图。
 
-所有图均保存为 PDF 矢量图。Matplotlib 绘图显式使用 PDF 输出；热力图使用矢量矩形 patch 绘制，避免在 PDF 中嵌入位图热力图。
+默认图像格式为 SVG 矢量图。若需要 PDF，可运行：
+
+```bash
+python code/plot_results.py --format pdf
+```
+
+若需要同时生成 SVG 和 PDF，可运行：
+
+```bash
+python code/plot_results.py --format both
+```
+
+热力图使用矢量矩形 patch 绘制，避免在矢量文件中嵌入位图热力图。
 
 ## 实验设问
 
@@ -135,4 +147,4 @@ w_i = delta / ||r_i||,    ||r_i|| > delta
 - 所有随机实验均设置 seed，结果可复现。
 - 所有图由真实运行结果生成，不编造实验数值。
 - quick 模式用于快速检查代码是否可运行；正式写报告建议使用 full 模式重新生成结果。
-- 绘图优先使用 Matplotlib；若本地环境缺少 Matplotlib，代码会生成简单 PDF 兜底，服务器安装依赖后会自动生成更完整的高级图。
+- 绘图优先使用 Matplotlib；若本地环境缺少 Matplotlib，代码会生成简单 SVG/PDF 兜底，服务器安装依赖后会自动生成更完整的高级图。

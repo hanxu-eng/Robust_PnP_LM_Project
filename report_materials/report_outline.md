@@ -200,8 +200,8 @@ noise_sigma_list = [0.5, 1.0, 2.0, 3.0]
 
 报告中可引用：
 
-- `figures/noise_clean_reprojection_rmse.pdf`
-- `figures/noise_rotation_error.pdf`
+- `figures/noise_clean_reprojection_rmse.svg`
+- `figures/noise_rotation_error.svg`
 
 具体数值从 `results/summary_results.csv` 中读取。
 
@@ -215,9 +215,9 @@ outlier_ratio_list = [0.0, 0.1, 0.2, 0.3]
 
 报告中可引用：
 
-- `figures/outlier_clean_reprojection_rmse.pdf`
-- `figures/outlier_rotation_error.pdf`
-- `figures/translation_error.pdf`
+- `figures/outlier_clean_reprojection_rmse.svg`
+- `figures/outlier_rotation_error.svg`
+- `figures/translation_error.svg`
 
 具体数值从 `results/summary_results.csv` 中读取。
 
@@ -231,7 +231,7 @@ init_rot_deg_list = [2.0, 5.0, 10.0, 16.0, 24.0]
 
 报告中可引用：
 
-- `figures/initialization_sensitivity.pdf`
+- `figures/initialization_sensitivity.svg`
 
 该实验可用于讨论：初始扰动较小时两种方法都能收敛到较好解；扰动增大后，LM 可能落入较差局部区域。鲁棒权重主要缓解外点影响，但不能从根本上消除非凸优化的初始化依赖。
 
@@ -245,7 +245,7 @@ point_count_list = [30, 60, 120, 200]
 
 报告中可引用：
 
-- `figures/point_count_sensitivity.pdf`
+- `figures/point_count_sensitivity.svg`
 
 该实验可用于说明：更多匹配点通常能提高统计稳定性，但若外点比例固定，普通最小二乘仍可能被大残差主导；Huber-LM 对新增内点信息的利用更稳定。
 
@@ -259,7 +259,7 @@ huber_delta_list = [1.0, 2.0, 5.0, 10.0, 20.0]
 
 报告中可引用：
 
-- `figures/huber_delta_sweep.pdf`
+- `figures/huber_delta_sweep.svg`
 
 该实验可用于讨论：`delta` 过小可能过度压低正常噪声点权重，`delta` 过大则接近普通最小二乘，对外点抑制不足。
 
@@ -292,9 +292,11 @@ huber_delta_list = [1.0, 2.0, 5.0, 10.0, 20.0]
 
 建议报告中优先放入：
 
-- `figures/performance_dashboard.pdf`：总览噪声、外点、初始化和点数量四类实验。
-- `figures/robustness_gain_heatmap.pdf`：用误差比展示 Huber-LM 的鲁棒性收益。
-- `figures/outlier_clean_rmse_boxplot.pdf`：展示不同 trial 的分布，而不是只展示均值。
+- `figures/performance_dashboard.svg`：总览噪声、外点、初始化和点数量四类实验。
+- `figures/robustness_gain_heatmap.svg`：用误差比展示 Huber-LM 的鲁棒性收益。
+- `figures/outlier_clean_rmse_boxplot.svg`：展示不同 trial 的分布，而不是只展示均值。
+
+如果排版系统更偏好 PDF，可运行 `python code/plot_results.py --format pdf` 生成同名 PDF 矢量图。
 
 ## 5 结论与局限
 

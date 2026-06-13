@@ -60,9 +60,9 @@ def evaluate_result(method: str, result: dict, data: dict) -> dict:
 
 
 def plot_convergence(ordinary: dict, huber: dict) -> Path:
-    """Save convergence curves as a PDF vector figure."""
+    """Save convergence curves as an SVG vector figure."""
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = FIGURE_DIR / "convergence.pdf"
+    out_path = FIGURE_DIR / "convergence.svg"
     series = [
         (
             "Ordinary-LM",

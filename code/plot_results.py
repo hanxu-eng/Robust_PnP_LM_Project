@@ -1,7 +1,8 @@
-"""Create report-ready PDF figures from experiment CSV results."""
+"""Create report-ready vector figures from experiment CSV results."""
 
 from __future__ import annotations
 
+import argparse
 import csv
 from pathlib import Path
 
@@ -150,9 +151,43 @@ def _write_minimal_pdf(path: Path, commands: list[str], width: int = 612, height
     path.write_bytes(bytes(pdf))
 
 
-def _fallback_report_pdf(path: Path, title: str, lines: list[str]) -> Path:
-    """Save a text-only PDF when Matplotlib is unavailable."""
+def _svg_escape(text: str) -> str:
+    """Escape a text string for SVG."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _write_minimal_svg(path: Path, body: list[str], width: int = 612, height: int = 396) -> None:
+    """Write a simple SVG using only the standard library."""
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="white"/>',
+        *body,
+        "</svg>",
+    ]
+    path.write_text("\n".join(svg), encoding="utf-8")
+
+
+def _fallback_report_figure(path: Path, title: str, lines: list[str]) -> Path:
+    """Save a text-only vector figure when Matplotlib is unavailable."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix.lower() == ".svg":
+        body = [
+            f'<text x="56" y="50" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="700">{_svg_escape(title)}</text>',
+            '<text x="56" y="76" font-family="Helvetica, Arial, sans-serif" font-size="10">Matplotlib is not installed; this is a validation fallback.</text>',
+        ]
+        y = 108
+        for line in lines[:14]:
+            body.append(
+                f'<text x="56" y="{y}" font-family="Helvetica, Arial, sans-serif" font-size="10">{_svg_escape(line)}</text>'
+            )
+            y += 20
+        _write_minimal_svg(path, body)
+        return path
 
     def text(x: float, y: float, value: str, size: int = 10) -> str:
         return f"BT /F1 {size} Tf {x:.2f} {y:.2f} Td ({_pdf_escape(value)}) Tj ET"
@@ -170,7 +205,7 @@ def _fallback_report_pdf(path: Path, title: str, lines: list[str]) -> Path:
     return path
 
 
-def _fallback_line_pdf(
+def _fallback_line_figure(
     series: list[tuple[str, np.ndarray, np.ndarray]],
     xlabel: str,
     ylabel: str,
@@ -217,6 +252,51 @@ def _fallback_line_pdf(
 
     def sy(y: float) -> float:
         return bottom + (y - y_min) / (y_max - y_min) * plot_h
+
+    if out_path.suffix.lower() == ".svg":
+        body = [
+            f'<text x="180" y="30" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700">{_svg_escape(title)}</text>',
+            f'<text x="260" y="374" font-family="Helvetica, Arial, sans-serif" font-size="10">{_svg_escape(xlabel)}</text>',
+            f'<text x="18" y="54" font-family="Helvetica, Arial, sans-serif" font-size="10">{_svg_escape(ylabel + (" (log10)" if yscale_log else ""))}</text>',
+        ]
+        for y_tick in np.linspace(y_min, y_max, 5):
+            y_pos = height - sy(float(y_tick))
+            body.append(
+                f'<line x1="{left:.2f}" y1="{y_pos:.2f}" x2="{left + plot_w:.2f}" y2="{y_pos:.2f}" stroke="#d9d9d9" stroke-width="0.7"/>'
+            )
+            body.append(
+                f'<text x="25" y="{y_pos + 3:.2f}" font-family="Helvetica, Arial, sans-serif" font-size="8">{y_tick:.3g}</text>'
+            )
+        for x_tick in np.unique(all_x):
+            x_pos = sx(float(x_tick))
+            body.append(
+                f'<line x1="{x_pos:.2f}" y1="{height - bottom:.2f}" x2="{x_pos:.2f}" y2="{height - bottom - plot_h:.2f}" stroke="#d9d9d9" stroke-width="0.7"/>'
+            )
+            body.append(
+                f'<text x="{x_pos - 8:.2f}" y="{height - bottom + 18:.2f}" font-family="Helvetica, Arial, sans-serif" font-size="8">{x_tick:g}</text>'
+            )
+        body.append(
+            f'<path d="M {left:.2f} {height - bottom:.2f} L {left:.2f} {height - bottom - plot_h:.2f} M {left:.2f} {height - bottom:.2f} L {left + plot_w:.2f} {height - bottom:.2f}" stroke="#000" fill="none" stroke-width="1"/>'
+        )
+        svg_colors = ["#1f59bf", "#cc332e", "#1f8c47"]
+        for index, (label, x_arr, y_arr) in enumerate(clean_series):
+            color = svg_colors[index % len(svg_colors)]
+            points = [(sx(float(x)), height - sy(float(y))) for x, y in zip(x_arr, y_arr)]
+            if points:
+                point_text = " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
+                body.append(
+                    f'<polyline points="{point_text}" fill="none" stroke="{color}" stroke-width="1.8"/>'
+                )
+                for x, y in points:
+                    body.append(f'<rect x="{x - 2:.2f}" y="{y - 2:.2f}" width="4" height="4" fill="{color}"/>')
+            legend_x = left + plot_w - 118
+            legend_y = height - (bottom + plot_h - 18 - 16 * index)
+            body.append(f'<rect x="{legend_x:.2f}" y="{legend_y - 4:.2f}" width="10" height="4" fill="{color}"/>')
+            body.append(
+                f'<text x="{legend_x + 16:.2f}" y="{legend_y:.2f}" font-family="Helvetica, Arial, sans-serif" font-size="9">{_svg_escape(label)}</text>'
+            )
+        _write_minimal_svg(out_path, body, width=width, height=height)
+        return
 
     def text(x: float, y: float, value: str, size: int = 10) -> str:
         return f"BT /F1 {size} Tf {x:.2f} {y:.2f} Td ({_pdf_escape(value)}) Tj ET"
@@ -287,6 +367,7 @@ def setup_matplotlib_style() -> None:
             "grid.linewidth": 0.7,
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
+            "svg.fonttype": "none",
         }
     )
 
@@ -302,7 +383,7 @@ def save_line_plot(
     """Save a line plot as PDF, preferring Matplotlib with a standard-library fallback."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if plt is None:
-        _fallback_line_pdf(series, xlabel, ylabel, title, out_path, yscale_log=yscale_log)
+        _fallback_line_figure(series, xlabel, ylabel, title, out_path, yscale_log=yscale_log)
         return out_path
 
     setup_matplotlib_style()
@@ -318,7 +399,7 @@ def save_line_plot(
     ax.set_title(title, loc="left", fontweight="bold")
     ax.legend(frameon=False)
     fig.tight_layout()
-    fig.savefig(out_path, format="pdf", bbox_inches="tight")
+    fig.savefig(out_path, format=out_path.suffix.lstrip("."), bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -332,11 +413,12 @@ def plot_metric(
     ylabel: str,
     title: str,
     filename: str,
+    fig_format: str = "svg",
     yscale_log: bool = False,
 ) -> Path:
     """Plot one metric with mean lines and standard-deviation bands."""
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = FIGURE_DIR / filename
+    out_path = FIGURE_DIR / f"{Path(filename).stem}.{fig_format}"
     series = rows_for(rows, experiment_type, metric_mean, metric_std)
 
     if plt is None:
@@ -357,7 +439,7 @@ def plot_metric(
     ax.set_title(title, loc="left", fontweight="bold")
     ax.legend(frameon=False)
     fig.tight_layout()
-    fig.savefig(out_path, format="pdf", bbox_inches="tight")
+    fig.savefig(out_path, format=fig_format, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
@@ -383,11 +465,11 @@ def _plot_panel(
     ax.set_ylabel(ylabel)
 
 
-def plot_performance_dashboard(rows: list[dict]) -> Path:
+def plot_performance_dashboard(rows: list[dict], fig_format: str = "svg") -> Path:
     """Save a four-panel dashboard that summarizes the main research questions."""
-    out_path = FIGURE_DIR / "performance_dashboard.pdf"
+    out_path = FIGURE_DIR / f"performance_dashboard.{fig_format}"
     if plt is None:
-        return _fallback_report_pdf(
+        return _fallback_report_figure(
             out_path,
             "Performance dashboard",
             [
@@ -438,14 +520,14 @@ def plot_performance_dashboard(rows: list[dict]) -> Path:
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 1.0))
     fig.suptitle("Robust PnP-LM stress-test summary", x=0.02, y=1.02, ha="left", fontweight="bold")
     fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.95])
-    fig.savefig(out_path, format="pdf", bbox_inches="tight")
+    fig.savefig(out_path, format=fig_format, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
 
-def plot_huber_delta_sweep(rows: list[dict]) -> Path:
+def plot_huber_delta_sweep(rows: list[dict], fig_format: str = "svg") -> Path:
     """Plot Huber threshold ablation."""
-    out_path = FIGURE_DIR / "huber_delta_sweep.pdf"
+    out_path = FIGURE_DIR / f"huber_delta_sweep.{fig_format}"
     delta_rows = [
         r for r in rows if r["experiment_type"] == "huber_delta" and r["method"] == "Huber-LM"
     ]
@@ -488,18 +570,18 @@ def plot_huber_delta_sweep(rows: list[dict]) -> Path:
 
     fig.suptitle("Huber threshold ablation under 25% outliers", x=0.02, ha="left", fontweight="bold")
     fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.92])
-    fig.savefig(out_path, format="pdf", bbox_inches="tight")
+    fig.savefig(out_path, format=fig_format, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
 
-def plot_outlier_boxplot(detail_rows: list[dict]) -> Path:
+def plot_outlier_boxplot(detail_rows: list[dict], fig_format: str = "svg") -> Path:
     """Plot per-trial clean RMSE distribution under outlier stress."""
-    out_path = FIGURE_DIR / "outlier_clean_rmse_boxplot.pdf"
+    out_path = FIGURE_DIR / f"outlier_clean_rmse_boxplot.{fig_format}"
     outlier_rows = [r for r in detail_rows if r["experiment_type"] == "outlier"]
     settings = sorted({float(r["setting_value"]) for r in outlier_rows})
     if plt is None:
-        return _fallback_report_pdf(
+        return _fallback_report_figure(
             out_path,
             "Outlier RMSE boxplot",
             ["Advanced boxplot requires Matplotlib.", f"Settings: {settings}"],
@@ -553,14 +635,14 @@ def plot_outlier_boxplot(detail_rows: list[dict]) -> Path:
     ]
     ax.legend(handles=handles, frameon=False)
     fig.tight_layout()
-    fig.savefig(out_path, format="pdf", bbox_inches="tight")
+    fig.savefig(out_path, format=fig_format, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
 
-def plot_robustness_gain_heatmap(rows: list[dict]) -> Path:
+def plot_robustness_gain_heatmap(rows: list[dict], fig_format: str = "svg") -> Path:
     """Plot Ordinary/Huber clean-RMSE ratio across stress tests."""
-    out_path = FIGURE_DIR / "robustness_gain_heatmap.pdf"
+    out_path = FIGURE_DIR / f"robustness_gain_heatmap.{fig_format}"
     experiments = ["noise", "outlier", "initialization", "point_count"]
     row_cells: list[list[tuple[float, float] | None]] = []
     max_cols = 0
@@ -599,7 +681,7 @@ def plot_robustness_gain_heatmap(rows: list[dict]) -> Path:
         for experiment_type, cells in zip(experiments, row_cells):
             text = ", ".join(f"{setting:g}: {ratio:.2f}x" for setting, ratio in cells)
             lines.append(f"{experiment_type}: {text}")
-        return _fallback_report_pdf(out_path, "Robustness gain heatmap", lines)
+        return _fallback_report_figure(out_path, "Robustness gain heatmap", lines)
 
     data = np.full((len(experiments), max_cols), np.nan, dtype=float)
     labels = [["" for _ in range(max_cols)] for _ in experiments]
@@ -642,13 +724,113 @@ def plot_robustness_gain_heatmap(rows: list[dict]) -> Path:
     cbar = fig.colorbar(scalar_map, ax=ax, fraction=0.035, pad=0.02)
     cbar.set_label("Error ratio (higher means Huber improves more)")
     fig.tight_layout()
-    fig.savefig(out_path, format="pdf", bbox_inches="tight")
+    fig.savefig(out_path, format=fig_format, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Generate vector experiment figures.")
+    parser.add_argument(
+        "--format",
+        choices=["svg", "pdf", "both"],
+        default="svg",
+        help="Output figure format. Default: svg.",
+    )
+    return parser.parse_args()
+
+
+def generate_figures(rows: list[dict], detail_rows: list[dict], fig_format: str) -> list[Path]:
+    """Generate all figures for one output format."""
+    return [
+        plot_metric(
+            rows,
+            "noise",
+            "clean_reprojection_rmse_mean",
+            "clean_reprojection_rmse_std",
+            "noise_sigma",
+            "Clean reprojection RMSE (px)",
+            "Noise sensitivity",
+            "noise_clean_reprojection_rmse.pdf",
+            fig_format=fig_format,
+        ),
+        plot_metric(
+            rows,
+            "noise",
+            "rotation_error_deg_mean",
+            "rotation_error_deg_std",
+            "noise_sigma",
+            "Rotation error (deg)",
+            "Rotation error under noise",
+            "noise_rotation_error.pdf",
+            fig_format=fig_format,
+        ),
+        plot_metric(
+            rows,
+            "outlier",
+            "clean_reprojection_rmse_mean",
+            "clean_reprojection_rmse_std",
+            "outlier_ratio",
+            "Clean reprojection RMSE (px)",
+            "Outlier sensitivity",
+            "outlier_clean_reprojection_rmse.pdf",
+            fig_format=fig_format,
+        ),
+        plot_metric(
+            rows,
+            "outlier",
+            "rotation_error_deg_mean",
+            "rotation_error_deg_std",
+            "outlier_ratio",
+            "Rotation error (deg)",
+            "Rotation error under outliers",
+            "outlier_rotation_error.pdf",
+            fig_format=fig_format,
+        ),
+        plot_metric(
+            rows,
+            "outlier",
+            "translation_error_mean",
+            "translation_error_std",
+            "outlier_ratio",
+            "Translation error",
+            "Translation error under outliers",
+            "translation_error.pdf",
+            fig_format=fig_format,
+        ),
+        plot_metric(
+            rows,
+            "initialization",
+            "rotation_error_deg_mean",
+            "rotation_error_deg_std",
+            "initial rotation perturbation (deg)",
+            "Rotation error (deg)",
+            "Initialization sensitivity",
+            "initialization_sensitivity.pdf",
+            fig_format=fig_format,
+        ),
+        plot_metric(
+            rows,
+            "point_count",
+            "clean_reprojection_rmse_mean",
+            "clean_reprojection_rmse_std",
+            "number of correspondences",
+            "Clean reprojection RMSE (px)",
+            "Point-count sensitivity under outliers",
+            "point_count_sensitivity.pdf",
+            fig_format=fig_format,
+        ),
+        plot_huber_delta_sweep(rows, fig_format=fig_format),
+        plot_outlier_boxplot(detail_rows, fig_format=fig_format),
+        plot_robustness_gain_heatmap(rows, fig_format=fig_format),
+        plot_performance_dashboard(rows, fig_format=fig_format),
+    ]
+
+
 def main() -> None:
-    """Read CSV summaries and generate report-ready PDF figures."""
+    """Read CSV summaries and generate report-ready vector figures."""
+    args = parse_args()
     summary_path = RESULTS_DIR / "summary_results.csv"
     detail_path = RESULTS_DIR / "experiment_results.csv"
     if not summary_path.exists():
@@ -662,82 +844,10 @@ def main() -> None:
 
     rows = read_summary(summary_path)
     detail_rows = read_detail(detail_path)
-    figure_paths = [
-        plot_metric(
-            rows,
-            "noise",
-            "clean_reprojection_rmse_mean",
-            "clean_reprojection_rmse_std",
-            "noise_sigma",
-            "Clean reprojection RMSE (px)",
-            "Noise sensitivity",
-            "noise_clean_reprojection_rmse.pdf",
-        ),
-        plot_metric(
-            rows,
-            "noise",
-            "rotation_error_deg_mean",
-            "rotation_error_deg_std",
-            "noise_sigma",
-            "Rotation error (deg)",
-            "Rotation error under noise",
-            "noise_rotation_error.pdf",
-        ),
-        plot_metric(
-            rows,
-            "outlier",
-            "clean_reprojection_rmse_mean",
-            "clean_reprojection_rmse_std",
-            "outlier_ratio",
-            "Clean reprojection RMSE (px)",
-            "Outlier sensitivity",
-            "outlier_clean_reprojection_rmse.pdf",
-        ),
-        plot_metric(
-            rows,
-            "outlier",
-            "rotation_error_deg_mean",
-            "rotation_error_deg_std",
-            "outlier_ratio",
-            "Rotation error (deg)",
-            "Rotation error under outliers",
-            "outlier_rotation_error.pdf",
-        ),
-        plot_metric(
-            rows,
-            "outlier",
-            "translation_error_mean",
-            "translation_error_std",
-            "outlier_ratio",
-            "Translation error",
-            "Translation error under outliers",
-            "translation_error.pdf",
-        ),
-        plot_metric(
-            rows,
-            "initialization",
-            "rotation_error_deg_mean",
-            "rotation_error_deg_std",
-            "initial rotation perturbation (deg)",
-            "Rotation error (deg)",
-            "Initialization sensitivity",
-            "initialization_sensitivity.pdf",
-        ),
-        plot_metric(
-            rows,
-            "point_count",
-            "clean_reprojection_rmse_mean",
-            "clean_reprojection_rmse_std",
-            "number of correspondences",
-            "Clean reprojection RMSE (px)",
-            "Point-count sensitivity under outliers",
-            "point_count_sensitivity.pdf",
-        ),
-        plot_huber_delta_sweep(rows),
-        plot_outlier_boxplot(detail_rows),
-        plot_robustness_gain_heatmap(rows),
-        plot_performance_dashboard(rows),
-    ]
+    formats = ["svg", "pdf"] if args.format == "both" else [args.format]
+    figure_paths: list[Path] = []
+    for fig_format in formats:
+        figure_paths.extend(generate_figures(rows, detail_rows, fig_format))
     print("Generated figures:")
     for path in figure_paths:
         print(path)
