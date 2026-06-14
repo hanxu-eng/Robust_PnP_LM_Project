@@ -271,6 +271,14 @@ huber_delta_list = [1.0, 2.0, 5.0, 10.0, 20.0]
 python code/real_experiment.py --colmap-dir data/colmap_text_model --mode full
 ```
 
+为了避免只展示单张图像，推荐使用多图像模式：
+
+```text
+python code/real_experiment.py --colmap-dir data/colmap_text_model --image-dir data/pipes/images/dslr_images_undistorted --num-images 3 --mode full --format svg
+```
+
+脚本会自动选择有效 2D-3D 对应点最多的前 3 张图像，分别进行 PnP 优化，并额外输出跨图像汇总结果。
+
 如果原始模型是 COLMAP binary 格式，可先执行：
 
 ```text
@@ -284,10 +292,13 @@ colmap model_converter --input_path path/to/sparse/0 --output_path data/colmap_t
 - `figures/real_observed_rmse.svg`
 - `figures/real_translation_error.svg`
 - `figures/real_pose_dashboard.svg`
-- `figures/real_keypoints_overlay.svg`
-- `figures/real_reprojection_overlay.svg`
-- `figures/real_residual_vectors.svg`
-- `figures/real_residual_histogram.svg`
+- `figures/real_per_image_reference_rmse.svg`
+- `figures/real_per_image_rotation_error.svg`
+- `figures/real_multi_image_montage.svg`
+- `figures/real_keypoints_overlay_img*.svg`
+- `figures/real_reprojection_overlay_img*.svg`
+- `figures/real_residual_vectors_img*.svg`
+- `figures/real_residual_histogram_img*.svg`
 
 需要说明的是，真实数据实验中的 reference pose 不是独立的运动捕捉真值，而是 COLMAP 重建结果。该实验的意义在于验证算法能否在真实图像匹配产生的 2D-3D 对应关系上工作，并通过打乱部分真实 2D 观测模拟错误匹配压力测试。
 

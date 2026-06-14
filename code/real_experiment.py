@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 try:
     from .pnp_lm import lm_pnp
     from .plot_results import save_line_plot
-    from .real_data import build_pnp_problem_from_colmap, corrupt_real_observations_by_shuffling
+    from .real_data import build_multiple_pnp_problems_from_colmap, corrupt_real_observations_by_shuffling
     from .utils import (
         project_points,
         reprojection_rmse_observed,
@@ -29,7 +29,7 @@ try:
 except ImportError:
     from pnp_lm import lm_pnp
     from plot_results import save_line_plot
-    from real_data import build_pnp_problem_from_colmap, corrupt_real_observations_by_shuffling
+    from real_data import build_multiple_pnp_problems_from_colmap, corrupt_real_observations_by_shuffling
     from utils import (
         project_points,
         reprojection_rmse_observed,
@@ -171,14 +171,30 @@ def run_real_experiment(problem: dict, mode: str, seed: int) -> list[dict]:
     return rows
 
 
-def aggregate_rows(rows: list[dict]) -> list[dict]:
+def run_real_experiments(problems: list[dict], mode: str, seed: int) -> list[dict]:
+    """Run real-data experiments for multiple selected COLMAP images."""
+    rows: list[dict] = []
+    for index, problem in enumerate(problems):
+        rows.extend(run_real_experiment(problem, mode=mode, seed=seed + index * 10000))
+    return rows
+
+
+def aggregate_rows(rows: list[dict], by_image: bool = False) -> list[dict]:
     """Aggregate real-data rows without pandas."""
-    groups: dict[tuple[float, str], list[dict]] = {}
+    groups: dict[tuple, list[dict]] = {}
     for row in rows:
-        groups.setdefault((float(row["outlier_ratio"]), row["method"]), []).append(row)
+        if by_image:
+            key = (int(row["image_id"]), float(row["outlier_ratio"]), row["method"])
+        else:
+            key = (float(row["outlier_ratio"]), row["method"])
+        groups.setdefault(key, []).append(row)
 
     summary_rows: list[dict] = []
-    for (outlier_ratio, method), group in sorted(groups.items(), key=lambda item: (item[0][0], item[0][1])):
+    for key, group in sorted(groups.items(), key=lambda item: item[0]):
+        if by_image:
+            _, outlier_ratio, method = key
+        else:
+            outlier_ratio, method = key
         ref = np.array([float(r["reference_reprojection_rmse"]) for r in group])
         obs = np.array([float(r["observed_reprojection_rmse"]) for r in group])
         rot = np.array([float(r["rotation_error_deg"]) for r in group])
@@ -278,6 +294,62 @@ def plot_real_summary(summary_rows: list[dict], fig_format: str) -> list[Path]:
     return paths
 
 
+def plot_per_image_summary(per_image_rows: list[dict], fig_format: str) -> list[Path]:
+    """Plot per-image performance at a representative wrong-match ratio."""
+    if plt is None:
+        return []
+    target_ratio = 0.2
+    available = sorted({float(r["outlier_ratio"]) for r in per_image_rows})
+    if available:
+        target_ratio = min(available, key=lambda value: abs(value - target_ratio))
+    rows = [r for r in per_image_rows if float(r["outlier_ratio"]) == target_ratio]
+    image_ids = sorted({int(r["image_id"]) for r in rows})
+    methods = ["Ordinary-LM", "Huber-LM"]
+    colors = {"Ordinary-LM": "#546A7B", "Huber-LM": "#D45113"}
+
+    paths: list[Path] = []
+    for metric, ylabel, filename, title in [
+        (
+            "reference_reprojection_rmse_mean",
+            "Reference RMSE (px)",
+            "real_per_image_reference_rmse",
+            "Per-image real-data pose accuracy",
+        ),
+        (
+            "rotation_error_deg_mean",
+            "Rotation error (deg)",
+            "real_per_image_rotation_error",
+            "Per-image real-data rotation error",
+        ),
+    ]:
+        fig, ax = plt.subplots(figsize=(8.2, 4.6))
+        x = np.arange(len(image_ids))
+        width = 0.34
+        for offset, method in [(-width / 2, "Ordinary-LM"), (width / 2, "Huber-LM")]:
+            values = []
+            labels = []
+            for image_id in image_ids:
+                match = [
+                    r
+                    for r in rows
+                    if int(r["image_id"]) == image_id and r["method"] == method
+                ]
+                values.append(float(match[0][metric]) if match else np.nan)
+                labels.append(match[0]["image_name"] if match else str(image_id))
+            ax.bar(x + offset, values, width=width, color=colors[method], alpha=0.82, label=method)
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(image_id) for image_id in image_ids])
+        ax.set_xlabel("COLMAP image id")
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"{title}, wrong-match ratio={target_ratio:g}", loc="left", fontweight="bold")
+        ax.grid(True, axis="y", alpha=0.25)
+        ax.legend(frameon=False)
+        fig.tight_layout()
+        path = FIGURE_DIR / f"{filename}.{fig_format}"
+        paths.append(_save_figure(fig, path, fig_format))
+    return paths
+
+
 def find_image_path(image_dir: str | Path | None, image_name: str) -> Path | None:
     """Find the real source image by name."""
     if image_dir is None:
@@ -316,6 +388,13 @@ def _save_figure(fig, path: Path, fig_format: str) -> Path:
     fig.savefig(path, format=fig_format, bbox_inches="tight")
     plt.close(fig)
     return path
+
+
+def image_safe_stem(problem: dict) -> str:
+    """Return a short file-safe image label."""
+    stem = Path(problem["image_name"]).stem
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in stem)
+    return f"img{int(problem['image_id']):03d}_{safe}"
 
 
 def fit_demo_results(problem: dict, outlier_ratio: float, seed: int, max_iters: int) -> dict:
@@ -376,7 +455,7 @@ def plot_keypoint_overlay(problem: dict, image_path: Path, fig_format: str, seed
         return None
     image = _read_image(image_path)
     idx = _limit_points_for_plot(problem["observed_uv"], max_points=220, seed=seed)
-    path = FIGURE_DIR / f"real_keypoints_overlay.{fig_format}"
+    path = FIGURE_DIR / f"real_keypoints_overlay_{image_safe_stem(problem)}.{fig_format}"
     fig, ax = plt.subplots(figsize=(8.8, 6.0))
     ax.imshow(image)
     ax.scatter(
@@ -418,7 +497,7 @@ def plot_reprojection_overlay(
     inlier_mask = demo["inlier_mask"]
     huber_proj = project_points(problem["X"], demo["huber"]["rvec"], demo["huber"]["t"], problem["K"])
     idx = _limit_points_for_plot(observed_uv, max_points=180, seed=seed)
-    path = FIGURE_DIR / f"real_reprojection_overlay.{fig_format}"
+    path = FIGURE_DIR / f"real_reprojection_overlay_{image_safe_stem(problem)}.{fig_format}"
 
     fig, ax = plt.subplots(figsize=(8.8, 6.0))
     ax.imshow(image)
@@ -466,7 +545,7 @@ def plot_residual_vectors(
     huber_proj = project_points(problem["X"], demo["huber"]["rvec"], demo["huber"]["t"], problem["K"])
     idx = _limit_points_for_plot(observed_uv, max_points=100, seed=seed)
     delta = huber_proj[idx] - observed_uv[idx]
-    path = FIGURE_DIR / f"real_residual_vectors.{fig_format}"
+    path = FIGURE_DIR / f"real_residual_vectors_{image_safe_stem(problem)}.{fig_format}"
 
     fig, ax = plt.subplots(figsize=(8.8, 6.0))
     ax.imshow(image)
@@ -497,7 +576,7 @@ def plot_residual_histogram(problem: dict, demo: dict, fig_format: str, outlier_
     huber_proj = project_points(problem["X"], demo["huber"]["rvec"], demo["huber"]["t"], problem["K"])
     ordinary_res = np.linalg.norm(ordinary_proj - observed_uv, axis=1)
     huber_res = np.linalg.norm(huber_proj - observed_uv, axis=1)
-    path = FIGURE_DIR / f"real_residual_histogram.{fig_format}"
+    path = FIGURE_DIR / f"real_residual_histogram_{image_safe_stem(problem)}.{fig_format}"
 
     fig, ax = plt.subplots(figsize=(7.4, 4.6))
     upper = float(np.percentile(np.r_[ordinary_res, huber_res], 95))
@@ -549,12 +628,63 @@ def plot_real_visuals(
     return paths
 
 
+def plot_multi_image_montage(
+    problems: list[dict],
+    image_dir: str | Path | None,
+    fig_format: str,
+    seed: int,
+) -> Path | None:
+    """Create a montage showing selected real images with observed 2D points."""
+    if plt is None or image_dir is None or not problems:
+        return None
+    items = []
+    for problem in problems[:6]:
+        image_path = find_image_path(image_dir, problem["image_name"])
+        if image_path is None:
+            continue
+        items.append((problem, image_path))
+    if not items:
+        return None
+
+    n_items = len(items)
+    n_cols = min(3, n_items)
+    n_rows = int(np.ceil(n_items / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.4 * n_cols, 3.2 * n_rows))
+    axes_arr = np.atleast_1d(axes).ravel()
+    for ax, (problem, image_path) in zip(axes_arr, items):
+        image = _read_image(image_path)
+        idx = _limit_points_for_plot(problem["observed_uv"], max_points=90, seed=seed + int(problem["image_id"]))
+        ax.imshow(image)
+        ax.scatter(
+            problem["observed_uv"][idx, 0],
+            problem["observed_uv"][idx, 1],
+            s=8,
+            facecolors="none",
+            edgecolors="#2A9D8F",
+            linewidths=0.65,
+        )
+        ax.set_title(
+            f"Image {problem['image_id']}: {problem['num_correspondences']} matches",
+            loc="left",
+            fontsize=9,
+            fontweight="bold",
+        )
+        ax.set_axis_off()
+    for ax in axes_arr[len(items):]:
+        ax.set_axis_off()
+    fig.suptitle("Selected real COLMAP images and 2D-3D observations", x=0.02, ha="left", fontweight="bold")
+    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
+    path = FIGURE_DIR / f"real_multi_image_montage.{fig_format}"
+    return _save_figure(fig, path, fig_format)
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run real-data PnP LM experiments from COLMAP.")
     parser.add_argument("--colmap-dir", required=True, help="Directory containing cameras.txt/images.txt/points3D.txt.")
     parser.add_argument("--image-id", type=int, default=None)
     parser.add_argument("--image-name", default=None)
+    parser.add_argument("--num-images", type=int, default=3, help="Auto-select this many top images when image id/name is not specified.")
     parser.add_argument("--min-points", type=int, default=30)
     parser.add_argument("--max-points", type=int, default=None)
     parser.add_argument("--mode", choices=["quick", "full"], default="quick")
@@ -569,43 +699,55 @@ def main() -> None:
     args = parse_args()
     cfg = mode_config(args.mode)
     max_points = args.max_points if args.max_points is not None else cfg["max_points"]
-    problem = build_pnp_problem_from_colmap(
+    problems = build_multiple_pnp_problems_from_colmap(
         args.colmap_dir,
+        num_images=args.num_images,
         image_id=args.image_id,
         image_name=args.image_name,
         min_points=args.min_points,
         max_points=max_points,
         seed=args.seed,
     )
-    print(
-        f"Loaded real COLMAP image {problem['image_id']} ({problem['image_name']}) "
-        f"with {problem['num_correspondences']} correspondences."
-    )
-    print(f"Camera model: {problem['camera_model']}. {problem['camera_note']}")
+    print(f"Loaded {len(problems)} real COLMAP image problem(s).")
+    for problem in problems:
+        print(
+            f"  image {problem['image_id']} ({problem['image_name']}): "
+            f"{problem['num_correspondences']} correspondences, camera={problem['camera_model']}"
+        )
+    print(f"Camera note: {problems[0]['camera_note']}")
 
-    rows = run_real_experiment(problem, mode=args.mode, seed=args.seed)
+    rows = run_real_experiments(problems, mode=args.mode, seed=args.seed)
     summary_rows = aggregate_rows(rows)
+    per_image_summary_rows = aggregate_rows(rows, by_image=True)
     detail_path = RESULTS_DIR / "real_experiment_results.csv"
     summary_path = RESULTS_DIR / "real_summary_results.csv"
+    per_image_summary_path = RESULTS_DIR / "real_per_image_summary_results.csv"
     write_csv(rows, detail_path, DETAIL_FIELDS)
     write_csv(summary_rows, summary_path, SUMMARY_FIELDS)
+    write_csv(per_image_summary_rows, per_image_summary_path, SUMMARY_FIELDS)
     print(f"Wrote {len(rows)} rows to {detail_path}")
     print(f"Wrote {len(summary_rows)} summary rows to {summary_path}")
+    print(f"Wrote {len(per_image_summary_rows)} per-image summary rows to {per_image_summary_path}")
 
     formats = ["svg", "pdf"] if args.format == "both" else [args.format]
     figure_paths: list[Path] = []
     for fig_format in formats:
         figure_paths.extend(plot_real_summary(summary_rows, fig_format))
-        figure_paths.extend(
-            plot_real_visuals(
-                problem,
-                summary_rows,
-                image_dir=args.image_dir,
-                fig_format=fig_format,
-                seed=args.seed,
-                max_iters=cfg["max_iters"],
+        figure_paths.extend(plot_per_image_summary(per_image_summary_rows, fig_format))
+        montage = plot_multi_image_montage(problems, args.image_dir, fig_format, args.seed)
+        if montage is not None:
+            figure_paths.append(montage)
+        for problem in problems:
+            figure_paths.extend(
+                plot_real_visuals(
+                    problem,
+                    per_image_summary_rows,
+                    image_dir=args.image_dir,
+                    fig_format=fig_format,
+                    seed=args.seed + int(problem["image_id"]),
+                    max_iters=cfg["max_iters"],
+                )
             )
-        )
     print("Generated real-data figures:")
     for path in figure_paths:
         print(path)

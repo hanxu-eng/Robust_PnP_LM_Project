@@ -214,6 +214,24 @@ def select_image(
     return image
 
 
+def select_top_images(
+    images: dict[int, dict],
+    points3d: dict[int, np.ndarray],
+    num_images: int,
+    min_points: int = 30,
+) -> list[dict]:
+    """Select top images by valid 2D-3D correspondence count."""
+    candidates = [
+        (image_observation_count(image, points3d), image)
+        for image in images.values()
+    ]
+    candidates = [(count, image) for count, image in candidates if count >= min_points]
+    candidates.sort(key=lambda item: (-item[0], item[1]["image_id"]))
+    if not candidates:
+        raise ValueError(f"No image has at least {min_points} valid correspondences.")
+    return [image for _, image in candidates[:max(1, num_images)]]
+
+
 def build_pnp_problem_from_colmap(
     colmap_dir: str | Path,
     image_id: int | None = None,
@@ -272,6 +290,101 @@ def build_pnp_problem_from_colmap(
         "camera_note": camera["note"],
         "num_correspondences": int(X.shape[0]),
     }
+
+
+def build_pnp_problem_from_image(
+    image: dict,
+    cameras: dict[int, dict],
+    points3d: dict[int, np.ndarray],
+    max_points: int | None = None,
+    seed: int = 0,
+) -> dict:
+    """Build a real PnP problem from a pre-selected COLMAP image dict."""
+    camera = cameras[image["camera_id"]]
+
+    X_list = []
+    uv_list = []
+    for xy, point_id in zip(image["xy"], image["point3d_ids"]):
+        point_id = int(point_id)
+        if point_id < 0 or point_id not in points3d:
+            continue
+        X_list.append(points3d[point_id])
+        uv_list.append(xy)
+
+    X = np.asarray(X_list, dtype=float)
+    observed_uv = np.asarray(uv_list, dtype=float)
+    if max_points is not None and X.shape[0] > max_points:
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(X.shape[0], size=max_points, replace=False)
+        idx.sort()
+        X = X[idx]
+        observed_uv = observed_uv[idx]
+
+    R_gt = image["R"]
+    t_gt = image["t"]
+    rvec_gt = so3_log(R_gt)
+    reference_uv = project_points(X, rvec_gt, t_gt, camera["K"])
+    depth = ((R_gt @ X.T).T + t_gt.reshape(1, 3))[:, 2]
+    valid_depth = depth > 1e-6
+    if not np.all(valid_depth):
+        X = X[valid_depth]
+        observed_uv = observed_uv[valid_depth]
+        reference_uv = reference_uv[valid_depth]
+
+    return {
+        "X": X,
+        "K": camera["K"],
+        "observed_uv": observed_uv,
+        "reference_uv": reference_uv,
+        "rvec_gt": rvec_gt,
+        "t_gt": t_gt,
+        "R_gt": R_gt,
+        "image_width": camera["width"],
+        "image_height": camera["height"],
+        "image_id": image["image_id"],
+        "image_name": image["name"],
+        "camera_model": camera["model"],
+        "camera_note": camera["note"],
+        "num_correspondences": int(X.shape[0]),
+    }
+
+
+def build_multiple_pnp_problems_from_colmap(
+    colmap_dir: str | Path,
+    num_images: int = 3,
+    image_id: int | None = None,
+    image_name: str | None = None,
+    min_points: int = 30,
+    max_points: int | None = None,
+    seed: int = 0,
+) -> list[dict]:
+    """Build one or more real PnP problems from a COLMAP sparse text model."""
+    cameras, images, points3d = load_colmap_model(colmap_dir)
+    if image_id is not None or image_name is not None:
+        selected = [
+            select_image(
+                images,
+                points3d,
+                image_id=image_id,
+                image_name=image_name,
+                min_points=min_points,
+            )
+        ]
+    else:
+        selected = select_top_images(images, points3d, num_images=num_images, min_points=min_points)
+
+    problems = []
+    for index, image in enumerate(selected):
+        problems.append(
+            build_pnp_problem_from_image(
+                image,
+                cameras,
+                points3d,
+                max_points=max_points,
+                seed=seed + index,
+            )
+        )
+    return problems
 
 
 def corrupt_real_observations_by_shuffling(
