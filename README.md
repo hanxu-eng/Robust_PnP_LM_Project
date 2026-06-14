@@ -113,8 +113,9 @@ python code/real_experiment.py \
 ```
 
 默认情况下，脚本会自动选择 2D-3D 对应点最多的前 3 张图像分别运行 PnP 实验，并生成多图像汇总。若只想指定单张图，可继续使用 `--image-id` 或 `--image-name`。
+`real_multi_image_montage.svg` 会将前三张选中图像横向拼成一行，便于直接放入报告正文。
 
-默认会自动选择有效 2D-3D 对应点最多的一张图像。也可以指定：
+若只想指定单张图像，可以使用：
 
 ```bash
 python code/real_experiment.py --colmap-dir data/colmap_text_model --image-id 12

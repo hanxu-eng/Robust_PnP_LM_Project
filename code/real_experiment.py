@@ -638,7 +638,7 @@ def plot_multi_image_montage(
     if plt is None or image_dir is None or not problems:
         return None
     items = []
-    for problem in problems[:6]:
+    for problem in problems[:3]:
         image_path = find_image_path(image_dir, problem["image_name"])
         if image_path is None:
             continue
@@ -647,9 +647,8 @@ def plot_multi_image_montage(
         return None
 
     n_items = len(items)
-    n_cols = min(3, n_items)
-    n_rows = int(np.ceil(n_items / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.4 * n_cols, 3.2 * n_rows))
+    n_cols = n_items
+    fig, axes = plt.subplots(1, n_cols, figsize=(4.6 * n_cols, 3.25))
     axes_arr = np.atleast_1d(axes).ravel()
     for ax, (problem, image_path) in zip(axes_arr, items):
         image = _read_image(image_path)
