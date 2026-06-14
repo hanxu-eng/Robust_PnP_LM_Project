@@ -9,13 +9,21 @@ from pathlib import Path
 import numpy as np
 
 try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError:
+    plt = None
+
+try:
     from .pnp_lm import lm_pnp
     from .plot_results import save_line_plot
     from .real_data import build_pnp_problem_from_colmap, corrupt_real_observations_by_shuffling
     from .utils import (
+        project_points,
         reprojection_rmse_observed,
         rotation_error_deg,
-        so3_exp,
         translation_error,
     )
 except ImportError:
@@ -23,9 +31,9 @@ except ImportError:
     from plot_results import save_line_plot
     from real_data import build_pnp_problem_from_colmap, corrupt_real_observations_by_shuffling
     from utils import (
+        project_points,
         reprojection_rmse_observed,
         rotation_error_deg,
-        so3_exp,
         translation_error,
     )
 
@@ -122,6 +130,7 @@ def run_one_method(problem: dict, observed_uv: np.ndarray, init_params: np.ndarr
         huber_delta=5.0,
     )
     return {
+        "result": result,
         "success": int(bool(result["success"])),
         "reference_reprojection_rmse": reference_reprojection_rmse(problem, result["rvec"], result["t"]),
         "observed_reprojection_rmse": reprojection_rmse_observed(
@@ -156,7 +165,7 @@ def run_real_experiment(problem: dict, mode: str, seed: int) -> list[dict]:
                     "outlier_ratio": outlier_ratio,
                     "trial": trial,
                     "method": method,
-                    **metrics,
+                    **{key: value for key, value in metrics.items() if key != "result"},
                 }
                 rows.append(row)
     return rows
@@ -232,6 +241,18 @@ def plot_real_summary(summary_rows: list[dict], fig_format: str) -> list[Path]:
             "real_rotation_error",
             "Real COLMAP correspondences: rotation error",
         ),
+        (
+            "observed_reprojection_rmse_mean",
+            "Observed reprojection RMSE (px)",
+            "real_observed_rmse",
+            "Real COLMAP correspondences: observed fit",
+        ),
+        (
+            "translation_error_mean",
+            "Translation error",
+            "real_translation_error",
+            "Real COLMAP correspondences: translation error",
+        ),
     ]:
         series = []
         for method in methods:
@@ -257,6 +278,277 @@ def plot_real_summary(summary_rows: list[dict], fig_format: str) -> list[Path]:
     return paths
 
 
+def find_image_path(image_dir: str | Path | None, image_name: str) -> Path | None:
+    """Find the real source image by name."""
+    if image_dir is None:
+        return None
+    root = Path(image_dir)
+    direct = root / image_name
+    if direct.exists():
+        return direct
+    matches = list(root.rglob(image_name))
+    if matches:
+        return matches[0]
+    return None
+
+
+def _limit_points_for_plot(uv: np.ndarray, max_points: int, seed: int) -> np.ndarray:
+    """Return stable point indices for readable image overlays."""
+    n_points = uv.shape[0]
+    if n_points <= max_points:
+        return np.arange(n_points)
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(n_points, size=max_points, replace=False)
+    idx.sort()
+    return idx
+
+
+def _read_image(image_path: Path) -> np.ndarray:
+    """Read an image for Matplotlib overlays."""
+    if plt is None:
+        raise RuntimeError("Matplotlib is required for image overlays.")
+    return plt.imread(str(image_path))
+
+
+def _save_figure(fig, path: Path, fig_format: str) -> Path:
+    """Save and close a Matplotlib figure."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, format=fig_format, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def fit_demo_results(problem: dict, outlier_ratio: float, seed: int, max_iters: int) -> dict:
+    """Run one representative real-data stress trial for visual overlays."""
+    observed_uv, inlier_mask = corrupt_real_observations_by_shuffling(
+        problem["observed_uv"],
+        outlier_ratio=outlier_ratio,
+        seed=seed,
+    )
+    init_params = make_initial_params(problem, seed=seed + 77)
+    ordinary = run_one_method(problem, observed_uv, init_params, max_iters, "Ordinary-LM")["result"]
+    huber = run_one_method(problem, observed_uv, init_params, max_iters, "Huber-LM")["result"]
+    return {
+        "observed_uv": observed_uv,
+        "inlier_mask": inlier_mask,
+        "ordinary": ordinary,
+        "huber": huber,
+    }
+
+
+def plot_real_dashboard(summary_rows: list[dict], fig_format: str) -> Path | None:
+    """Create a compact dashboard for the real-data experiment."""
+    if plt is None:
+        return None
+    path = FIGURE_DIR / f"real_pose_dashboard.{fig_format}"
+    metrics = [
+        ("reference_reprojection_rmse_mean", "Reference RMSE (px)", "A. Reference projection"),
+        ("observed_reprojection_rmse_mean", "Observed RMSE (px)", "B. Observed fit"),
+        ("rotation_error_deg_mean", "Rotation error (deg)", "C. Rotation error"),
+        ("translation_error_mean", "Translation error", "D. Translation error"),
+    ]
+    methods = ["Ordinary-LM", "Huber-LM"]
+    colors = {"Ordinary-LM": "#546A7B", "Huber-LM": "#D45113"}
+    markers = {"Ordinary-LM": "o", "Huber-LM": "s"}
+
+    fig, axes = plt.subplots(2, 2, figsize=(10.6, 7.2))
+    for ax, (metric, ylabel, title) in zip(axes.ravel(), metrics):
+        for method in methods:
+            rows = [r for r in summary_rows if r["method"] == method]
+            rows.sort(key=lambda r: float(r["outlier_ratio"]))
+            x = np.array([float(r["outlier_ratio"]) for r in rows])
+            y = np.array([float(r[metric]) for r in rows])
+            ax.plot(x, y, marker=markers[method], color=colors[method], linewidth=2.0, label=method)
+        ax.set_title(title, loc="left", fontweight="bold")
+        ax.set_xlabel("Wrong-match ratio")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.25)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
+    fig.suptitle("Real ETH3D/COLMAP PnP experiment summary", x=0.02, y=1.02, ha="left", fontweight="bold")
+    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.94])
+    return _save_figure(fig, path, fig_format)
+
+
+def plot_keypoint_overlay(problem: dict, image_path: Path, fig_format: str, seed: int) -> Path | None:
+    """Plot real observed 2D points and COLMAP reference projections on the image."""
+    if plt is None:
+        return None
+    image = _read_image(image_path)
+    idx = _limit_points_for_plot(problem["observed_uv"], max_points=220, seed=seed)
+    path = FIGURE_DIR / f"real_keypoints_overlay.{fig_format}"
+    fig, ax = plt.subplots(figsize=(8.8, 6.0))
+    ax.imshow(image)
+    ax.scatter(
+        problem["observed_uv"][idx, 0],
+        problem["observed_uv"][idx, 1],
+        s=18,
+        facecolors="none",
+        edgecolors="#2A9D8F",
+        linewidths=0.9,
+        label="COLMAP 2D observations",
+    )
+    ax.scatter(
+        problem["reference_uv"][idx, 0],
+        problem["reference_uv"][idx, 1],
+        s=9,
+        c="#D45113",
+        alpha=0.85,
+        label="Reference pose projections",
+    )
+    ax.set_title(f"Real image correspondences: {problem['image_name']}", loc="left", fontweight="bold")
+    ax.set_axis_off()
+    ax.legend(loc="lower right", frameon=True)
+    return _save_figure(fig, path, fig_format)
+
+
+def plot_reprojection_overlay(
+    problem: dict,
+    image_path: Path,
+    demo: dict,
+    fig_format: str,
+    outlier_ratio: float,
+    seed: int,
+) -> Path | None:
+    """Plot corrupted observations and optimized Huber projections on the image."""
+    if plt is None:
+        return None
+    image = _read_image(image_path)
+    observed_uv = demo["observed_uv"]
+    inlier_mask = demo["inlier_mask"]
+    huber_proj = project_points(problem["X"], demo["huber"]["rvec"], demo["huber"]["t"], problem["K"])
+    idx = _limit_points_for_plot(observed_uv, max_points=180, seed=seed)
+    path = FIGURE_DIR / f"real_reprojection_overlay.{fig_format}"
+
+    fig, ax = plt.subplots(figsize=(8.8, 6.0))
+    ax.imshow(image)
+    inlier_idx = idx[inlier_mask[idx]]
+    outlier_idx = idx[~inlier_mask[idx]]
+    ax.scatter(observed_uv[inlier_idx, 0], observed_uv[inlier_idx, 1], s=16, c="#2A9D8F", alpha=0.75, label="Kept matches")
+    if outlier_idx.size > 0:
+        ax.scatter(
+            observed_uv[outlier_idx, 0],
+            observed_uv[outlier_idx, 1],
+            s=24,
+            marker="x",
+            c="#C1121F",
+            linewidths=1.0,
+            label="Simulated wrong matches",
+        )
+    ax.scatter(
+        huber_proj[idx, 0],
+        huber_proj[idx, 1],
+        s=10,
+        facecolors="none",
+        edgecolors="#F77F00",
+        linewidths=0.8,
+        label="Huber-LM projections",
+    )
+    ax.set_title(f"Real image robust PnP overlay, wrong-match ratio={outlier_ratio:g}", loc="left", fontweight="bold")
+    ax.set_axis_off()
+    ax.legend(loc="lower right", frameon=True)
+    return _save_figure(fig, path, fig_format)
+
+
+def plot_residual_vectors(
+    problem: dict,
+    image_path: Path,
+    demo: dict,
+    fig_format: str,
+    outlier_ratio: float,
+    seed: int,
+) -> Path | None:
+    """Plot reprojection residual vectors for Huber-LM on the real image."""
+    if plt is None:
+        return None
+    image = _read_image(image_path)
+    observed_uv = demo["observed_uv"]
+    huber_proj = project_points(problem["X"], demo["huber"]["rvec"], demo["huber"]["t"], problem["K"])
+    idx = _limit_points_for_plot(observed_uv, max_points=100, seed=seed)
+    delta = huber_proj[idx] - observed_uv[idx]
+    path = FIGURE_DIR / f"real_residual_vectors.{fig_format}"
+
+    fig, ax = plt.subplots(figsize=(8.8, 6.0))
+    ax.imshow(image)
+    ax.quiver(
+        observed_uv[idx, 0],
+        observed_uv[idx, 1],
+        delta[:, 0],
+        delta[:, 1],
+        angles="xy",
+        scale_units="xy",
+        scale=1.0,
+        width=0.0022,
+        color="#D45113",
+        alpha=0.82,
+    )
+    ax.scatter(observed_uv[idx, 0], observed_uv[idx, 1], s=10, c="#264653", alpha=0.8)
+    ax.set_title(f"Huber-LM reprojection residual vectors, wrong-match ratio={outlier_ratio:g}", loc="left", fontweight="bold")
+    ax.set_axis_off()
+    return _save_figure(fig, path, fig_format)
+
+
+def plot_residual_histogram(problem: dict, demo: dict, fig_format: str, outlier_ratio: float) -> Path | None:
+    """Plot residual norm distributions for Ordinary-LM and Huber-LM."""
+    if plt is None:
+        return None
+    observed_uv = demo["observed_uv"]
+    ordinary_proj = project_points(problem["X"], demo["ordinary"]["rvec"], demo["ordinary"]["t"], problem["K"])
+    huber_proj = project_points(problem["X"], demo["huber"]["rvec"], demo["huber"]["t"], problem["K"])
+    ordinary_res = np.linalg.norm(ordinary_proj - observed_uv, axis=1)
+    huber_res = np.linalg.norm(huber_proj - observed_uv, axis=1)
+    path = FIGURE_DIR / f"real_residual_histogram.{fig_format}"
+
+    fig, ax = plt.subplots(figsize=(7.4, 4.6))
+    upper = float(np.percentile(np.r_[ordinary_res, huber_res], 95))
+    if upper <= 1e-12:
+        upper = 1.0
+    bins = np.linspace(0.0, upper, 28)
+    ax.hist(ordinary_res, bins=bins, alpha=0.55, color="#546A7B", label="Ordinary-LM")
+    ax.hist(huber_res, bins=bins, alpha=0.55, color="#D45113", label="Huber-LM")
+    ax.set_title(f"Residual distribution on real correspondences, wrong-match ratio={outlier_ratio:g}", loc="left", fontweight="bold")
+    ax.set_xlabel("Reprojection residual norm (px)")
+    ax.set_ylabel("Point count")
+    ax.grid(True, alpha=0.25)
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    return _save_figure(fig, path, fig_format)
+
+
+def plot_real_visuals(
+    problem: dict,
+    summary_rows: list[dict],
+    image_dir: str | Path | None,
+    fig_format: str,
+    seed: int,
+    max_iters: int,
+) -> list[Path]:
+    """Generate richer real-data visualizations."""
+    paths: list[Path] = []
+    dashboard = plot_real_dashboard(summary_rows, fig_format)
+    if dashboard is not None:
+        paths.append(dashboard)
+
+    image_path = find_image_path(image_dir, problem["image_name"])
+    if image_path is None:
+        return paths
+
+    overlay = plot_keypoint_overlay(problem, image_path, fig_format, seed)
+    if overlay is not None:
+        paths.append(overlay)
+
+    outlier_ratio = 0.2
+    demo = fit_demo_results(problem, outlier_ratio=outlier_ratio, seed=seed + 3000, max_iters=max_iters)
+    for path in [
+        plot_reprojection_overlay(problem, image_path, demo, fig_format, outlier_ratio, seed),
+        plot_residual_vectors(problem, image_path, demo, fig_format, outlier_ratio, seed),
+        plot_residual_histogram(problem, demo, fig_format, outlier_ratio),
+    ]:
+        if path is not None:
+            paths.append(path)
+    return paths
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run real-data PnP LM experiments from COLMAP.")
@@ -267,6 +559,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-points", type=int, default=None)
     parser.add_argument("--mode", choices=["quick", "full"], default="quick")
     parser.add_argument("--format", choices=["svg", "pdf", "both"], default="svg")
+    parser.add_argument("--image-dir", default=None, help="Optional directory with the source images for overlay figures.")
     parser.add_argument("--seed", type=int, default=20260613)
     return parser.parse_args()
 
@@ -303,6 +596,16 @@ def main() -> None:
     figure_paths: list[Path] = []
     for fig_format in formats:
         figure_paths.extend(plot_real_summary(summary_rows, fig_format))
+        figure_paths.extend(
+            plot_real_visuals(
+                problem,
+                summary_rows,
+                image_dir=args.image_dir,
+                fig_format=fig_format,
+                seed=args.seed,
+                max_iters=cfg["max_iters"],
+            )
+        )
     print("Generated real-data figures:")
     for path in figure_paths:
         print(path)

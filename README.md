@@ -101,6 +101,16 @@ python code/real_experiment.py --colmap-dir data/colmap_text_model --mode quick
 python code/real_experiment.py --colmap-dir data/colmap_text_model --mode full
 ```
 
+如果希望生成真实照片上的 overlay 可视化，需要同时传入原始图片目录：
+
+```bash
+python code/real_experiment.py \
+  --colmap-dir data/colmap_text_model \
+  --image-dir data/pipes/images/dslr_images_undistorted \
+  --mode full \
+  --format svg
+```
+
 默认会自动选择有效 2D-3D 对应点最多的一张图像。也可以指定：
 
 ```bash
@@ -114,6 +124,13 @@ python code/real_experiment.py --colmap-dir data/colmap_text_model --image-name 
 - `results/real_summary_results.csv`
 - `figures/real_reference_rmse.svg`
 - `figures/real_rotation_error.svg`
+- `figures/real_observed_rmse.svg`
+- `figures/real_translation_error.svg`
+- `figures/real_pose_dashboard.svg`
+- `figures/real_keypoints_overlay.svg`：真实照片上的 2D 观测点和 COLMAP reference 投影。
+- `figures/real_reprojection_overlay.svg`：错误匹配压力测试下的真实照片重投影 overlay。
+- `figures/real_residual_vectors.svg`：真实照片上的 Huber-LM 重投影残差向量。
+- `figures/real_residual_histogram.svg`：Ordinary-LM 与 Huber-LM 的残差分布对比。
 
 说明：COLMAP 给出的位姿和 3D 点作为 reference pose / reference map。实验先在真实 2D-3D 对应关系上跑 PnP，再通过打乱一部分真实 2D 观测模拟错误匹配压力测试。这比纯合成点更接近真实视觉任务，但仍依赖 COLMAP 重建质量。
 

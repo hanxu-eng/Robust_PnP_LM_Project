@@ -281,6 +281,13 @@ colmap model_converter --input_path path/to/sparse/0 --output_path data/colmap_t
 
 - `figures/real_reference_rmse.svg`
 - `figures/real_rotation_error.svg`
+- `figures/real_observed_rmse.svg`
+- `figures/real_translation_error.svg`
+- `figures/real_pose_dashboard.svg`
+- `figures/real_keypoints_overlay.svg`
+- `figures/real_reprojection_overlay.svg`
+- `figures/real_residual_vectors.svg`
+- `figures/real_residual_histogram.svg`
 
 需要说明的是，真实数据实验中的 reference pose 不是独立的运动捕捉真值，而是 COLMAP 重建结果。该实验的意义在于验证算法能否在真实图像匹配产生的 2D-3D 对应关系上工作，并通过打乱部分真实 2D 观测模拟错误匹配压力测试。
 
